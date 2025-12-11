@@ -53,6 +53,12 @@ uploads/
 .DS_Store
 Thumbs.db
 
+# Videos
+*.mp4
+*.avi
+*.mov
+*.mkv
+
 # Testing
 .pytest_cache/
 .coverage
