@@ -246,57 +246,97 @@ class AnalysisEngine:
             # Import video processor for frame previews
             from video_processor import VideoProcessor
             
-            analyses = []
-            for i, batch in enumerate(frame_batches):
-                # Send frame preview before analysis
-                if batch:
-                    first_frame = batch[0]
-                    frame_dets = yolo_detections.get(first_frame.frame_number, [])
-                    
-                    # Create annotated frame preview
-                    processor = VideoProcessor(video_path)
-                    try:
-                        annotated_frame, _ = processor.get_annotated_frame(
-                            first_frame.frame_number,
-                            frame_dets
-                        )
-                        frame_b64 = processor.frame_to_base64(annotated_frame, quality=60)
+            # Parallel VLM analysis configuration
+            MAX_CONCURRENT_VLM = Config.VLM_MAX_CONCURRENT  # Max concurrent VLM API calls
+            semaphore = asyncio.Semaphore(MAX_CONCURRENT_VLM)
+            
+            # Track completed analyses for progress updates
+            completed_count = [0]  # Use list to allow modification in nested function
+            analyses = [None] * len(frame_batches)
+            
+            async def analyze_batch_with_preview(batch: list, batch_idx: int):
+                """Analyze a single batch with frame preview and progress tracking."""
+                async with semaphore:
+                    # Send frame preview before analysis
+                    if batch:
+                        first_frame = batch[0]
+                        frame_dets = yolo_detections.get(first_frame.frame_number, [])
                         
-                        await manager.broadcast(job_id, {
-                            "type": "frame_preview",
-                            "second": i,
-                            "frame": frame_b64,
-                            "detections": len(frame_dets),
-                            "message": f"Analyzing second {i + 1}..."
-                        })
-                    except Exception as e:
-                        logger.debug(f"Frame preview failed: {e}")
-                    finally:
-                        processor.close()
-                
-                analysis = await analyzer.analyze_second(
-                    batch,
-                    yolo_detections,
-                    i
-                )
-                analyses.append(analysis)
-                
-                # Store in MongoDB
-                if self.mongodb and analysis.success:
-                    self.mongodb.store_analysis(
-                        video_id,
-                        analysis.second_index,
-                        analysis.to_dict(),
-                        analysis.frame_numbers
+                        try:
+                            # Create annotated frame preview
+                            processor = VideoProcessor(video_path)
+                            annotated_frame, _ = processor.get_annotated_frame(
+                                first_frame.frame_number,
+                                frame_dets
+                            )
+                            frame_b64 = processor.frame_to_base64(annotated_frame, quality=60)
+                            processor.close()
+                            
+                            await manager.broadcast(job_id, {
+                                "type": "frame_preview",
+                                "second": batch_idx,
+                                "frame": frame_b64,
+                                "detections": len(frame_dets),
+                                "message": f"Analyzing second {batch_idx + 1}..."
+                            })
+                        except Exception as e:
+                            logger.debug(f"Frame preview failed: {e}")
+                    
+                    # Run VLM analysis
+                    analysis = await analyzer.analyze_second(
+                        batch,
+                        yolo_detections,
+                        batch_idx
                     )
-                
-                progress = 0.4 + (0.55 * (i + 1) / total_batches)
-                await manager.broadcast(job_id, {
-                    "type": "progress",
-                    "progress": progress,
-                    "message": f"VLM analysis: {i + 1}/{total_batches}"
-                })
-                analysis_jobs[job_id]["progress"] = progress
+                    
+                    # Store in MongoDB
+                    if self.mongodb and analysis.success:
+                        self.mongodb.store_analysis(
+                            video_id,
+                            analysis.second_index,
+                            analysis.to_dict(),
+                            analysis.frame_numbers
+                        )
+                    
+                    # Update progress
+                    completed_count[0] += 1
+                    progress = 0.4 + (0.55 * completed_count[0] / total_batches)
+                    analysis_jobs[job_id]["progress"] = progress
+                    
+                    await manager.broadcast(job_id, {
+                        "type": "progress",
+                        "progress": progress,
+                        "message": f"VLM analysis: {completed_count[0]}/{total_batches} (parallel)"
+                    })
+                    
+                    return batch_idx, analysis
+            
+            # Run all analyses in parallel with semaphore limiting concurrency
+            await manager.broadcast(job_id, {
+                "type": "progress",
+                "progress": 0.4,
+                "message": f"Starting parallel VLM analysis ({MAX_CONCURRENT_VLM} concurrent)..."
+            })
+            
+            # Create all analysis tasks
+            tasks = [
+                analyze_batch_with_preview(batch, idx)
+                for idx, batch in enumerate(frame_batches)
+            ]
+            
+            # Execute in parallel
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Collect results in order
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"Parallel analysis failed: {result}")
+                    continue
+                batch_idx, analysis = result
+                analyses[batch_idx] = analysis
+            
+            # Filter out None values (failed analyses)
+            analyses = [a for a in analyses if a is not None]
             
             # Create summary
             summary = analyzer.create_video_summary(

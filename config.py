@@ -34,6 +34,9 @@ class Config:
     YOLO_IOU: float = 0.5
     VEHICLE_CLASSES: list = [2, 3, 5, 7]  # car, motorcycle, bus, truck
     
+    # Parallel Processing Settings
+    VLM_MAX_CONCURRENT: int = int(os.getenv("VLM_MAX_CONCURRENT", "4"))  # Concurrent VLM API calls
+    
     # Class name mapping (COCO dataset)
     CLASS_NAMES: dict = {
         2: "car",
