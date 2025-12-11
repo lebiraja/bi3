@@ -90,3 +90,31 @@ export interface DashboardStats {
   failedJobs: number;
   avgRiskScore: number;
 }
+
+// Enhanced Report types
+export interface EnhancedReportSections {
+  executive_summary: string;
+  narrative_summary: string;
+  incident_breakdown: string;
+  evidence_mapping: string;
+  classification: string;
+  legal_notes: string;
+}
+
+export interface EnhancedReportMetadata {
+  vlm_risk_score: number;
+  observation_count: number;
+  generation_time_ms: number;
+}
+
+export interface EnhancedReport {
+  report_type: string;
+  video_id: string;
+  generated_at: string;
+  content: string;
+  sections?: EnhancedReportSections;
+  metadata?: EnhancedReportMetadata;
+  success: boolean;
+  error?: string;
+}
+

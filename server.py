@@ -22,6 +22,7 @@ from frame_sampler import FrameSampler
 from mongodb_handler import MongoDBHandler
 from vlm_client import VLMClient
 from behavior_analyzer import BehaviorAnalyzer, VideoAnalysisSummary
+from report_generator import ReportGenerator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -120,6 +121,18 @@ class AnalysisResultResponse(BaseModel):
     max_risk_score: int
     critical_observations: List[dict]
     analysis_timestamp: str
+
+
+class EnhancedReportResponse(BaseModel):
+    """Enhanced documentation-style report response."""
+    report_type: str
+    video_id: str
+    generated_at: str
+    content: str
+    sections: Optional[dict] = None
+    metadata: Optional[dict] = None
+    success: bool
+    error: Optional[str] = None
 
 
 # ============ WebSocket Manager ============
@@ -345,17 +358,63 @@ class AnalysisEngine:
                 total_seconds
             )
             
+            # Store classical result
+            analysis_jobs[job_id]["result"] = summary.to_dict()
+            
+            # Generate enhanced report
+            await manager.broadcast(job_id, {
+                "type": "progress",
+                "progress": 0.96,
+                "message": "Generating enhanced documentation report..."
+            })
+            
+            try:
+                report_generator = ReportGenerator(
+                    mongodb_handler=self.mongodb
+                )
+                
+                enhanced_report = await report_generator.generate_enhanced_report(
+                    vlm_analysis=summary.to_dict(),
+                    video_metadata={
+                        "video_id": video_id,
+                        "total_seconds": total_seconds,
+                        "analyzed_seconds": len(analyses),
+                        "analysis_timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                )
+                
+                # Store enhanced report in DB
+                if self.mongodb and enhanced_report.success:
+                    self.mongodb.store_enhanced_report(
+                        video_id,
+                        enhanced_report.to_dict()
+                    )
+                
+                # Add to job result
+                analysis_jobs[job_id]["enhanced_report"] = enhanced_report.to_dict()
+                
+                await report_generator.close()
+                
+                logger.info(f"Enhanced report generated in {enhanced_report.generation_time_ms}ms")
+                
+            except Exception as e:
+                logger.warning(f"Enhanced report generation failed: {e}")
+                analysis_jobs[job_id]["enhanced_report"] = {
+                    "success": False,
+                    "error": str(e)
+                }
+            
             # Update job as completed
             analysis_jobs[job_id]["status"] = "completed"
             analysis_jobs[job_id]["progress"] = 1.0
             analysis_jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
-            analysis_jobs[job_id]["result"] = summary.to_dict()
             
             await manager.broadcast(job_id, {
                 "type": "completed",
                 "progress": 1.0,
                 "message": "Analysis complete",
-                "result": summary.to_dict()
+                "result": summary.to_dict(),
+                "has_enhanced_report": analysis_jobs[job_id].get("enhanced_report", {}).get("success", False)
             })
             
             # Cleanup
@@ -565,6 +624,43 @@ async def get_job_result(job_id: str):
         raise HTTPException(400, f"Job not completed. Status: {job['status']}")
     
     return AnalysisResultResponse(**job["result"])
+
+
+@app.get("/api/jobs/{job_id}/enhanced-report", response_model=EnhancedReportResponse)
+async def get_enhanced_report(job_id: str):
+    """
+    Get enhanced documentation-style report for a completed job.
+    
+    Returns the police-ready detailed incident documentation.
+    """
+    if job_id not in analysis_jobs:
+        raise HTTPException(404, f"Job not found: {job_id}")
+    
+    job = analysis_jobs[job_id]
+    
+    if job["status"] != "completed":
+        raise HTTPException(400, f"Job not completed. Status: {job['status']}")
+    
+    # Check if enhanced report exists in job
+    enhanced_report = job.get("enhanced_report")
+    if enhanced_report:
+        # Check if it's a failed report (missing required fields)
+        if not enhanced_report.get("success", False):
+            error_msg = enhanced_report.get("error", "Enhanced report generation failed")
+            raise HTTPException(503, f"Enhanced report not available: {error_msg}")
+        
+        # Ensure all required fields are present
+        if all(k in enhanced_report for k in ["report_type", "video_id", "generated_at", "content"]):
+            return EnhancedReportResponse(**enhanced_report)
+    
+    # Try to fetch from MongoDB
+    if engine.mongodb:
+        video_id = job.get("video_id")
+        stored_report = engine.mongodb.get_enhanced_report(video_id)
+        if stored_report and stored_report.get("success", False):
+            return EnhancedReportResponse(**stored_report)
+    
+    raise HTTPException(404, "Enhanced report not available for this job")
 
 
 @app.get("/api/video-info")

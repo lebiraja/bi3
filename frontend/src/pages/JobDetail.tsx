@@ -23,10 +23,13 @@ import {
   CircularProgress,
   RiskBadge,
   VideoPlayer,
+  EnhancedReport,
+  ReportTabs,
 } from '../components/ui';
-import { getJob } from '../services/api';
+import type { ReportTabType } from '../components/ui';
+import { getJob, getEnhancedReport } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
-import type { AnalysisJob, BehaviorObservation, WSMessage } from '../types/api';
+import type { AnalysisJob, BehaviorObservation, WSMessage, EnhancedReport as EnhancedReportType } from '../types/api';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
   ResponsiveContainer,
@@ -45,6 +48,12 @@ export const JobDetail = () => {
   const [expandedObservations, setExpandedObservations] = useState<Set<number>>(
     new Set()
   );
+
+  // Report tabs state
+  const [activeReportTab, setActiveReportTab] = useState<ReportTabType>('classical');
+  const [enhancedReport, setEnhancedReport] = useState<EnhancedReportType | null>(null);
+  const [enhancedReportLoading, setEnhancedReportLoading] = useState(false);
+  const [enhancedReportError, setEnhancedReportError] = useState<string | null>(null);
 
   // WebSocket for real-time updates on processing jobs
   useWebSocket(job?.status === 'processing' ? jobId || null : null, {
@@ -91,6 +100,34 @@ export const JobDetail = () => {
     const interval = setInterval(fetchJob, 3000);
     return () => clearInterval(interval);
   }, [jobId]);
+
+  // Fetch enhanced report when tab changes to enhanced
+  useEffect(() => {
+    const fetchEnhancedReport = async () => {
+      if (!jobId || activeReportTab !== 'enhanced' || enhancedReport) return;
+
+      setEnhancedReportLoading(true);
+      setEnhancedReportError(null);
+
+      try {
+        const report = await getEnhancedReport(jobId);
+        setEnhancedReport(report);
+      } catch (error: any) {
+        console.error('Failed to fetch enhanced report:', error);
+        setEnhancedReportError(
+          error?.response?.data?.detail ||
+          error?.message ||
+          'Failed to load enhanced report'
+        );
+      } finally {
+        setEnhancedReportLoading(false);
+      }
+    };
+
+    if (job?.status === 'completed') {
+      fetchEnhancedReport();
+    }
+  }, [jobId, activeReportTab, job?.status, enhancedReport]);
 
   const toggleObservation = (index: number) => {
     setExpandedObservations((prev) => {
@@ -470,114 +507,130 @@ export const JobDetail = () => {
               </motion.div>
             )}
 
-            {/* Critical Observations */}
+            {/* Report Section with Tabs */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
             >
-              <Card>
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <FileText className="w-5 h-5 text-slate-400" />
-                    <h3 className="text-lg font-semibold text-white">
-                      Critical Observations
-                    </h3>
-                  </div>
-                  <span className="text-sm text-slate-400">
-                    {job.result.critical_observations?.length || 0} findings
-                  </span>
-                </div>
+              <ReportTabs
+                activeTab={activeReportTab}
+                onTabChange={setActiveReportTab}
+                enhancedAvailable={true}
+              />
 
-                {!job.result.critical_observations?.length ? (
-                  <div className="text-center py-12">
-                    <Shield className="w-12 h-12 text-green-400 mx-auto mb-4" />
-                    <h4 className="text-lg font-medium text-white mb-2">
-                      No Critical Observations
-                    </h4>
-                    <p className="text-slate-400">
-                      The video analysis did not detect any concerning behaviors.
-                    </p>
+              {activeReportTab === 'classical' ? (
+                /* Classical Report - Critical Observations */
+                <Card>
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <FileText className="w-5 h-5 text-slate-400" />
+                      <h3 className="text-lg font-semibold text-white">
+                        Critical Observations
+                      </h3>
+                    </div>
+                    <span className="text-sm text-slate-400">
+                      {job.result.critical_observations?.length || 0} findings
+                    </span>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    {job.result.critical_observations.map((obs, index) => (
-                      <motion.div
-                        key={index}
-                        className="border border-slate-700/50 rounded-xl overflow-hidden"
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                      >
-                        <button
-                          onClick={() => toggleObservation(index)}
-                          className="w-full p-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors"
+
+                  {!job.result.critical_observations?.length ? (
+                    <div className="text-center py-12">
+                      <Shield className="w-12 h-12 text-green-400 mx-auto mb-4" />
+                      <h4 className="text-lg font-medium text-white mb-2">
+                        No Critical Observations
+                      </h4>
+                      <p className="text-slate-400">
+                        The video analysis did not detect any concerning behaviors.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {job.result.critical_observations.map((obs, index) => (
+                        <motion.div
+                          key={index}
+                          className="border border-slate-700/50 rounded-xl overflow-hidden"
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05 }}
                         >
-                          <div className="flex items-center gap-4">
-                            <div
-                              className="w-10 h-10 rounded-lg flex items-center justify-center"
-                              style={{
-                                backgroundColor: `${getRiskColor(
-                                  obs.risk_level
-                                )}20`,
-                              }}
-                            >
-                              <Car
-                                className="w-5 h-5"
-                                style={{ color: getRiskColor(obs.risk_level) }}
-                              />
-                            </div>
-                            <div className="text-left">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-white">
-                                  {obs.behavior_type}
-                                </span>
-                                <RiskBadge
-                                  level={obs.risk_level as any}
-                                  size="sm"
+                          <button
+                            onClick={() => toggleObservation(index)}
+                            className="w-full p-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div
+                                className="w-10 h-10 rounded-lg flex items-center justify-center"
+                                style={{
+                                  backgroundColor: `${getRiskColor(
+                                    obs.risk_level
+                                  )}20`,
+                                }}
+                              >
+                                <Car
+                                  className="w-5 h-5"
+                                  style={{ color: getRiskColor(obs.risk_level) }}
                                 />
                               </div>
-                              <p className="text-sm text-slate-400">
-                                Vehicle: {obs.vehicle_id} • Confidence:{' '}
-                                {obs.confidence}
-                              </p>
+                              <div className="text-left">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-white">
+                                    {obs.behavior_type}
+                                  </span>
+                                  <RiskBadge
+                                    level={obs.risk_level as any}
+                                    size="sm"
+                                  />
+                                </div>
+                                <p className="text-sm text-slate-400">
+                                  Vehicle: {obs.vehicle_id} • Confidence:{' '}
+                                  {obs.confidence}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                          {expandedObservations.has(index) ? (
-                            <ChevronUp className="w-5 h-5 text-slate-400" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-slate-400" />
-                          )}
-                        </button>
+                            {expandedObservations.has(index) ? (
+                              <ChevronUp className="w-5 h-5 text-slate-400" />
+                            ) : (
+                              <ChevronDown className="w-5 h-5 text-slate-400" />
+                            )}
+                          </button>
 
-                        {expandedObservations.has(index) && (
-                          <motion.div
-                            className="px-4 pb-4 pt-2 border-t border-slate-700/30"
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                          >
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <p className="text-sm text-slate-400 mb-1">
-                                  Description
-                                </p>
-                                <p className="text-white">{obs.description}</p>
+                          {expandedObservations.has(index) && (
+                            <motion.div
+                              className="px-4 pb-4 pt-2 border-t border-slate-700/30"
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              exit={{ opacity: 0, height: 0 }}
+                            >
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <p className="text-sm text-slate-400 mb-1">
+                                    Description
+                                  </p>
+                                  <p className="text-white">{obs.description}</p>
+                                </div>
+                                <div>
+                                  <p className="text-sm text-slate-400 mb-1">
+                                    Evidence
+                                  </p>
+                                  <p className="text-white">{obs.evidence}</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="text-sm text-slate-400 mb-1">
-                                  Evidence
-                                </p>
-                                <p className="text-white">{obs.evidence}</p>
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </Card>
+                            </motion.div>
+                          )}
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              ) : (
+                /* Enhanced Report View */
+                <EnhancedReport
+                  report={enhancedReport}
+                  loading={enhancedReportLoading}
+                  error={enhancedReportError || undefined}
+                />
+              )}
             </motion.div>
           </>
         )}

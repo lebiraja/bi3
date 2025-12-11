@@ -7,6 +7,7 @@ import type {
   JobListResponse,
   AnalysisResult,
   VideoInfo,
+  EnhancedReport,
 } from '../types/api';
 
 // Create axios instance with base configuration
@@ -78,6 +79,12 @@ export const getJobResult = async (jobId: string): Promise<AnalysisResult> => {
   return response.data;
 };
 
+// Get enhanced report
+export const getEnhancedReport = async (jobId: string): Promise<EnhancedReport> => {
+  const response = await api.get<EnhancedReport>(`/jobs/${jobId}/enhanced-report`);
+  return response.data;
+};
+
 // Get video info
 export const getVideoInfo = async (path: string): Promise<VideoInfo> => {
   const response = await api.get<VideoInfo>('/video-info', {
@@ -94,3 +101,4 @@ export const createWebSocket = (jobId: string): WebSocket => {
 };
 
 export default api;
+

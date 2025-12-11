@@ -283,6 +283,146 @@ class MongoDBHandler:
             "critical_count": 0
         }
     
+    # ============ Enhanced Report Operations ============
+    
+    def _ensure_enhanced_reports_collection(self):
+        """Ensure enhanced_reports collection exists with indexes."""
+        if not hasattr(self, 'enhanced_reports_collection') or self.enhanced_reports_collection is None:
+            self.enhanced_reports_collection = self.db["enhanced_reports"]
+            try:
+                self.enhanced_reports_collection.create_index("video_id", unique=True)
+                self.enhanced_reports_collection.create_index("generated_at")
+            except Exception:
+                # Index may already exist with different specs, ignore
+                pass
+    
+    def store_enhanced_report(
+        self,
+        video_id: str,
+        enhanced_report: dict
+    ) -> str:
+        """
+        Store enhanced report for a video.
+        
+        Args:
+            video_id: Unique identifier for the video
+            enhanced_report: Enhanced report data dictionary
+        
+        Returns:
+            Inserted document ID
+        """
+        self._ensure_enhanced_reports_collection()
+        
+        document = {
+            "video_id": video_id,
+            **enhanced_report,
+            "stored_at": datetime.utcnow()
+        }
+        
+        try:
+            # Upsert to allow updating existing reports
+            result = self.enhanced_reports_collection.update_one(
+                {"video_id": video_id},
+                {"$set": document},
+                upsert=True
+            )
+            return str(result.upserted_id) if result.upserted_id else video_id
+            
+        except Exception as e:
+            # Handle legacy index conflicts by dropping problematic indexes
+            if "duplicate key error" in str(e) or "E11000" in str(e):
+                try:
+                    # Drop all indexes except _id and recreate
+                    self.enhanced_reports_collection.drop_indexes()
+                    self.enhanced_reports_collection.create_index("video_id", unique=True)
+                    
+                    # Retry the upsert
+                    result = self.enhanced_reports_collection.update_one(
+                        {"video_id": video_id},
+                        {"$set": document},
+                        upsert=True
+                    )
+                    return str(result.upserted_id) if result.upserted_id else video_id
+                except Exception:
+                    pass
+            raise
+    
+    def get_enhanced_report(self, video_id: str) -> Optional[dict]:
+        """
+        Get enhanced report for a video.
+        
+        Args:
+            video_id: Unique identifier for the video
+        
+        Returns:
+            Enhanced report document or None
+        """
+        self._ensure_enhanced_reports_collection()
+        
+        result = self.enhanced_reports_collection.find_one({"video_id": video_id})
+        if result:
+            result.pop("_id", None)  # Remove MongoDB ID
+        return result
+    
+    def get_historical_reports(
+        self,
+        exclude_video_id: str = None,
+        limit: int = 5
+    ) -> List[dict]:
+        """
+        Get historical VLM analysis summaries for context.
+        
+        Args:
+            exclude_video_id: Video ID to exclude from results
+            limit: Maximum number of reports to return
+        
+        Returns:
+            List of historical report summaries
+        """
+        query = {}
+        if exclude_video_id:
+            query["video_id"] = {"$ne": exclude_video_id}
+        
+        # Aggregate to get summary per video
+        pipeline = [
+            {"$match": query},
+            {"$sort": {"analyzed_at": -1}},
+            {"$group": {
+                "_id": "$video_id",
+                "video_id": {"$first": "$video_id"},
+                "analyzed_at": {"$first": "$analyzed_at"},
+                "avg_risk_score": {"$avg": "$risk_score"},
+                "max_risk_score": {"$max": "$risk_score"},
+                "total_analyses": {"$sum": 1},
+                "sample_analysis": {"$first": "$analysis"}
+            }},
+            {"$sort": {"analyzed_at": -1}},
+            {"$limit": limit}
+        ]
+        
+        results = list(self.analyses_collection.aggregate(pipeline))
+        
+        # Format results
+        historical = []
+        for r in results:
+            # Extract critical observations from sample analysis
+            sample = r.get("sample_analysis", {})
+            observations = sample.get("observations", [])
+            critical_obs = [
+                obs for obs in observations
+                if obs.get("risk_level") in ["critical", "warning", "high"]
+            ]
+            
+            historical.append({
+                "video_id": r.get("video_id", ""),
+                "analyzed_at": r.get("analyzed_at", "").isoformat() if r.get("analyzed_at") else "",
+                "avg_risk_score": round(r.get("avg_risk_score", 0), 2),
+                "max_risk_score": r.get("max_risk_score", 0),
+                "critical_observations": critical_obs[:3]  # Limit to top 3
+            })
+        
+        return historical
+    
     def close(self):
         """Close MongoDB connection."""
         if self.client:
@@ -293,3 +433,4 @@ class MongoDBHandler:
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
