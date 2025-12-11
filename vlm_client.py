@@ -153,12 +153,31 @@ class VLMClient:
                     content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
                     usage = result.get("usage", {})
                     
-                    # Try to parse JSON response
+                    # Try to parse JSON response (may be wrapped in markdown)
                     parsed_json = None
                     try:
                         parsed_json = json.loads(content)
                     except json.JSONDecodeError:
-                        logger.warning("Failed to parse VLM response as JSON")
+                        # Try to extract JSON from markdown code block
+                        import re
+                        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+                        if json_match:
+                            try:
+                                parsed_json = json.loads(json_match.group(1))
+                            except json.JSONDecodeError:
+                                pass
+                        
+                        # If still no JSON, create a basic structure from content
+                        if parsed_json is None:
+                            logger.debug("VLM response not JSON, using text-based fallback")
+                            parsed_json = {
+                                "observations": [],
+                                "overall_assessment": {
+                                    "risk_score": 2,
+                                    "summary": content[:500] if content else "No analysis available",
+                                    "recommended_alerts": []
+                                }
+                            }
                     
                     return VLMResponse(
                         success=True,

@@ -89,7 +89,7 @@ export const StatusBadge = ({
 };
 
 interface RiskBadgeProps {
-  level: 'low' | 'medium' | 'high' | 'critical';
+  level: 'low' | 'medium' | 'high' | 'critical' | 'warning' | string;
   score?: number;
   size?: 'sm' | 'md' | 'lg';
 }
@@ -99,7 +99,7 @@ export const RiskBadge = ({
   score,
   size = 'md',
 }: RiskBadgeProps) => {
-  const config = {
+  const config: Record<string, { bg: string; text: string; border: string; label: string }> = {
     low: {
       bg: 'bg-green-500/20',
       text: 'text-green-400',
@@ -111,6 +111,12 @@ export const RiskBadge = ({
       text: 'text-yellow-400',
       border: 'border-yellow-500/30',
       label: 'Medium Risk',
+    },
+    warning: {
+      bg: 'bg-orange-500/20',
+      text: 'text-orange-400',
+      border: 'border-orange-500/30',
+      label: 'Warning',
     },
     high: {
       bg: 'bg-orange-500/20',
@@ -132,7 +138,13 @@ export const RiskBadge = ({
     lg: 'text-base px-4 py-1.5',
   };
 
-  const riskConfig = config[level];
+  // Fallback for unknown levels
+  const riskConfig = config[level?.toLowerCase()] || {
+    bg: 'bg-slate-500/20',
+    text: 'text-slate-400',
+    border: 'border-slate-500/30',
+    label: level || 'Unknown',
+  };
 
   return (
     <motion.span

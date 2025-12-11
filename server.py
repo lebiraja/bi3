@@ -8,7 +8,7 @@ import uuid
 import os
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, List
 from contextlib import asynccontextmanager
 
@@ -279,7 +279,7 @@ class AnalysisEngine:
             # Update job as completed
             analysis_jobs[job_id]["status"] = "completed"
             analysis_jobs[job_id]["progress"] = 1.0
-            analysis_jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+            analysis_jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
             analysis_jobs[job_id]["result"] = summary.to_dict()
             
             await manager.broadcast(job_id, {
@@ -399,7 +399,7 @@ async def upload_video(
         "video_path": str(filepath),
         "status": "pending",
         "progress": 0.0,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "completed_at": None,
         "error": None,
         "result": None
@@ -444,7 +444,7 @@ async def analyze_existing_video(
         "video_path": str(video_path),
         "status": "pending",
         "progress": 0.0,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "completed_at": None,
         "error": None,
         "result": None

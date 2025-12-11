@@ -15,6 +15,12 @@ export default defineConfig({
       '/ws': {
         target: 'ws://localhost:8000',
         ws: true,
+        rewriteWsOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            console.log('WebSocket proxy error (ignored):', err.message);
+          });
+        },
       },
     },
   },
