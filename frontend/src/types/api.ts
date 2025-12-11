@@ -71,11 +71,15 @@ export interface VideoInfo {
 
 // WebSocket message types
 export interface WSMessage {
-  type: 'status' | 'progress' | 'completed' | 'error' | 'pong' | 'keepalive';
+  type: 'status' | 'progress' | 'completed' | 'error' | 'pong' | 'keepalive' | 'frame_preview';
   status?: string;
   progress?: number;
   message?: string;
   result?: AnalysisResult;
+  // Frame preview fields
+  frame?: string;
+  second?: number;
+  detections?: number;
 }
 
 // UI State types

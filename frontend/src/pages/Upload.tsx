@@ -11,7 +11,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { Header } from '../components/layout';
-import { Card, Button, ProgressBar, CircularProgress } from '../components/ui';
+import { Card, Button, ProgressBar, CircularProgress, FramePreview } from '../components/ui';
 import { uploadVideo } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import type { WSMessage } from '../types/api';
@@ -26,6 +26,10 @@ interface UploadInfo {
   videoId: string | null;
   message: string;
   error: string | null;
+  // Frame preview data
+  framePreview: string | null;
+  frameSecond: number;
+  frameDetections: number;
 }
 
 export const Upload = () => {
@@ -41,6 +45,9 @@ export const Upload = () => {
     videoId: null,
     message: '',
     error: null,
+    framePreview: null,
+    frameSecond: 0,
+    frameDetections: 0,
   });
 
   // WebSocket for real-time progress
@@ -50,6 +57,15 @@ export const Upload = () => {
         setInfo((prev) => ({
           ...prev,
           analysisProgress: (message.progress || 0) * 100,
+          message: message.message || prev.message,
+        }));
+      } else if (message.type === 'frame_preview') {
+        // Handle frame preview for live visualization
+        setInfo((prev) => ({
+          ...prev,
+          framePreview: message.frame || null,
+          frameSecond: message.second || 0,
+          frameDetections: message.detections || 0,
           message: message.message || prev.message,
         }));
       } else if (message.type === 'completed') {
@@ -107,6 +123,9 @@ export const Upload = () => {
       videoId: null,
       message: '',
       error: null,
+      framePreview: null,
+      frameSecond: 0,
+      frameDetections: 0,
     });
     setState('idle');
   };
@@ -156,6 +175,9 @@ export const Upload = () => {
       videoId: null,
       message: '',
       error: null,
+      framePreview: null,
+      frameSecond: 0,
+      frameDetections: 0,
     });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -187,11 +209,10 @@ export const Upload = () => {
             >
               <Card className="p-0 overflow-hidden">
                 <div
-                  className={`relative p-12 border-2 border-dashed rounded-2xl transition-all cursor-pointer ${
-                    dragOver
-                      ? 'border-blue-500 bg-blue-500/10'
-                      : 'border-slate-600 hover:border-slate-500 hover:bg-slate-800/30'
-                  }`}
+                  className={`relative p-12 border-2 border-dashed rounded-2xl transition-all cursor-pointer ${dragOver
+                    ? 'border-blue-500 bg-blue-500/10'
+                    : 'border-slate-600 hover:border-slate-500 hover:bg-slate-800/30'
+                    }`}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
@@ -335,6 +356,19 @@ export const Upload = () => {
               exit={{ opacity: 0, y: -20 }}
             >
               <Card glow>
+                {/* Frame Preview */}
+                {info.framePreview && (
+                  <div className="mb-6">
+                    <FramePreview
+                      frame={info.framePreview}
+                      second={info.frameSecond}
+                      detections={info.frameDetections}
+                      message={info.message || 'Analyzing...'}
+                      isConnected={isConnected}
+                    />
+                  </div>
+                )}
+
                 <div className="flex flex-col items-center mb-8">
                   <CircularProgress
                     progress={info.analysisProgress}
@@ -359,11 +393,10 @@ export const Upload = () => {
                 <div className="space-y-4 p-4 bg-slate-800/30 rounded-xl">
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        info.analysisProgress >= 10
-                          ? 'bg-green-500/20'
-                          : 'bg-slate-700/50'
-                      }`}
+                      className={`w-8 h-8 rounded-full flex items-center justify-center ${info.analysisProgress >= 10
+                        ? 'bg-green-500/20'
+                        : 'bg-slate-700/50'
+                        }`}
                     >
                       {info.analysisProgress >= 10 ? (
                         <Check className="w-4 h-4 text-green-400" />
@@ -383,13 +416,12 @@ export const Upload = () => {
                   </div>
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        info.analysisProgress >= 40
-                          ? 'bg-green-500/20'
-                          : info.analysisProgress >= 10
+                      className={`w-8 h-8 rounded-full flex items-center justify-center ${info.analysisProgress >= 40
+                        ? 'bg-green-500/20'
+                        : info.analysisProgress >= 10
                           ? 'bg-blue-500/20'
                           : 'bg-slate-700/50'
-                      }`}
+                        }`}
                     >
                       {info.analysisProgress >= 40 ? (
                         <Check className="w-4 h-4 text-green-400" />
@@ -411,13 +443,12 @@ export const Upload = () => {
                   </div>
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        info.analysisProgress >= 95
-                          ? 'bg-green-500/20'
-                          : info.analysisProgress >= 40
+                      className={`w-8 h-8 rounded-full flex items-center justify-center ${info.analysisProgress >= 95
+                        ? 'bg-green-500/20'
+                        : info.analysisProgress >= 40
                           ? 'bg-blue-500/20'
                           : 'bg-slate-700/50'
-                      }`}
+                        }`}
                     >
                       {info.analysisProgress >= 95 ? (
                         <Check className="w-4 h-4 text-green-400" />
@@ -439,13 +470,12 @@ export const Upload = () => {
                   </div>
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        info.analysisProgress >= 100
-                          ? 'bg-green-500/20'
-                          : info.analysisProgress >= 95
+                      className={`w-8 h-8 rounded-full flex items-center justify-center ${info.analysisProgress >= 100
+                        ? 'bg-green-500/20'
+                        : info.analysisProgress >= 95
                           ? 'bg-blue-500/20'
                           : 'bg-slate-700/50'
-                      }`}
+                        }`}
                     >
                       {info.analysisProgress >= 100 ? (
                         <Check className="w-4 h-4 text-green-400" />

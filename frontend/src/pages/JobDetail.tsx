@@ -22,6 +22,7 @@ import {
   ProgressBar,
   CircularProgress,
   RiskBadge,
+  VideoPlayer,
 } from '../components/ui';
 import { getJob } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -52,21 +53,21 @@ export const JobDetail = () => {
         setJob((prev) =>
           prev
             ? {
-                ...prev,
-                progress: message.progress || prev.progress,
-                status: (message.status as any) || prev.status,
-              }
+              ...prev,
+              progress: message.progress || prev.progress,
+              status: (message.status as any) || prev.status,
+            }
             : null
         );
       } else if (message.type === 'completed' && message.result) {
         setJob((prev) =>
           prev
             ? {
-                ...prev,
-                status: 'completed',
-                progress: 1,
-                result: message.result,
-              }
+              ...prev,
+              status: 'completed',
+              progress: 1,
+              result: message.result,
+            }
             : null
         );
       }
@@ -212,26 +213,24 @@ export const JobDetail = () => {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div
-                className={`w-16 h-16 rounded-2xl flex items-center justify-center ${
-                  job.status === 'completed'
-                    ? 'bg-green-500/10'
-                    : job.status === 'processing'
+                className={`w-16 h-16 rounded-2xl flex items-center justify-center ${job.status === 'completed'
+                  ? 'bg-green-500/10'
+                  : job.status === 'processing'
                     ? 'bg-blue-500/10'
                     : job.status === 'failed'
-                    ? 'bg-red-500/10'
-                    : 'bg-slate-700/50'
-                }`}
+                      ? 'bg-red-500/10'
+                      : 'bg-slate-700/50'
+                  }`}
               >
                 <Video
-                  className={`w-8 h-8 ${
-                    job.status === 'completed'
-                      ? 'text-green-400'
-                      : job.status === 'processing'
+                  className={`w-8 h-8 ${job.status === 'completed'
+                    ? 'text-green-400'
+                    : job.status === 'processing'
                       ? 'text-blue-400'
                       : job.status === 'failed'
-                      ? 'text-red-400'
-                      : 'text-slate-400'
-                  }`}
+                        ? 'text-red-400'
+                        : 'text-slate-400'
+                    }`}
                 />
               </div>
               <div>
@@ -302,6 +301,23 @@ export const JobDetail = () => {
         {/* Results Section (for completed jobs) */}
         {job.status === 'completed' && job.result && (
           <>
+            {/* YOLO Annotated Video */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 }}
+            >
+              <Card>
+                <h3 className="text-lg font-semibold text-white mb-4">
+                  YOLO Detection Video
+                </h3>
+                <VideoPlayer
+                  src={`/api/jobs/${job.job_id}/video`}
+                  title={`${job.video_name} - YOLO Detection`}
+                />
+              </Card>
+            </motion.div>
+
             {/* Summary Stats */}
             <motion.div
               className="grid grid-cols-1 md:grid-cols-4 gap-4"
@@ -345,13 +361,12 @@ export const JobDetail = () => {
                   <div>
                     <p className="text-sm text-slate-400">Avg Risk</p>
                     <p
-                      className={`text-2xl font-bold ${
-                        job.result.avg_risk_score < 3
-                          ? 'text-green-400'
-                          : job.result.avg_risk_score < 5
+                      className={`text-2xl font-bold ${job.result.avg_risk_score < 3
+                        ? 'text-green-400'
+                        : job.result.avg_risk_score < 5
                           ? 'text-yellow-400'
                           : 'text-red-400'
-                      }`}
+                        }`}
                     >
                       {job.result.avg_risk_score.toFixed(1)}
                     </p>

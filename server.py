@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from config import Config
@@ -243,8 +243,37 @@ class AnalysisEngine:
             vlm_client = VLMClient()
             analyzer = BehaviorAnalyzer(vlm_client)
             
+            # Import video processor for frame previews
+            from video_processor import VideoProcessor
+            
             analyses = []
             for i, batch in enumerate(frame_batches):
+                # Send frame preview before analysis
+                if batch:
+                    first_frame = batch[0]
+                    frame_dets = yolo_detections.get(first_frame.frame_number, [])
+                    
+                    # Create annotated frame preview
+                    processor = VideoProcessor(video_path)
+                    try:
+                        annotated_frame, _ = processor.get_annotated_frame(
+                            first_frame.frame_number,
+                            frame_dets
+                        )
+                        frame_b64 = processor.frame_to_base64(annotated_frame, quality=60)
+                        
+                        await manager.broadcast(job_id, {
+                            "type": "frame_preview",
+                            "second": i,
+                            "frame": frame_b64,
+                            "detections": len(frame_dets),
+                            "message": f"Analyzing second {i + 1}..."
+                        })
+                    except Exception as e:
+                        logger.debug(f"Frame preview failed: {e}")
+                    finally:
+                        processor.close()
+                
                 analysis = await analyzer.analyze_second(
                     batch,
                     yolo_detections,
@@ -512,6 +541,86 @@ async def get_video_info(path: str):
         return info
     except Exception as e:
         raise HTTPException(500, f"Failed to read video: {e}")
+
+
+# Processed video directory
+PROCESSED_DIR = Path("processed")
+PROCESSED_DIR.mkdir(exist_ok=True)
+
+
+@app.get("/api/jobs/{job_id}/video")
+async def get_processed_video(job_id: str):
+    """
+    Get YOLO-annotated processed video for a job.
+    Generates the video if not already processed.
+    """
+    if job_id not in analysis_jobs:
+        raise HTTPException(404, f"Job not found: {job_id}")
+    
+    job = analysis_jobs[job_id]
+    video_path = job.get("video_path")
+    
+    if not video_path or not Path(video_path).exists():
+        raise HTTPException(404, "Original video not found")
+    
+    # Check if processed video exists
+    processed_path = PROCESSED_DIR / f"{job_id}_annotated.mp4"
+    
+    if not processed_path.exists():
+        # Generate processed video
+        try:
+            from video_processor import VideoProcessor
+            processor = VideoProcessor(video_path, str(PROCESSED_DIR))
+            processor.process_video(output_name=f"{job_id}_annotated")
+            processor.close()
+        except Exception as e:
+            raise HTTPException(500, f"Failed to process video: {e}")
+    
+    return FileResponse(
+        processed_path,
+        media_type="video/mp4",
+        filename=f"{job_id}_annotated.mp4"
+    )
+
+
+@app.get("/api/jobs/{job_id}/frame/{second}")
+async def get_frame_preview(job_id: str, second: int):
+    """
+    Get an annotated frame preview for a specific second.
+    
+    Returns base64-encoded JPEG image.
+    """
+    if job_id not in analysis_jobs:
+        raise HTTPException(404, f"Job not found: {job_id}")
+    
+    job = analysis_jobs[job_id]
+    video_path = job.get("video_path")
+    
+    if not video_path or not Path(video_path).exists():
+        raise HTTPException(404, "Original video not found")
+    
+    try:
+        from video_processor import VideoProcessor
+        
+        # Calculate frame number (3 frames per second, use middle frame)
+        sampler = FrameSampler(video_path)
+        fps = sampler.fps
+        frame_number = int(second * fps + fps / 2)
+        sampler.close()
+        
+        processor = VideoProcessor(video_path)
+        annotated_frame, detections = processor.get_annotated_frame(frame_number)
+        frame_b64 = processor.frame_to_base64(annotated_frame, quality=80)
+        processor.close()
+        
+        return {
+            "second": second,
+            "frame": frame_b64,
+            "detections": detections,
+            "frame_number": frame_number
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to get frame: {e}")
 
 
 # ============ WebSocket Endpoint ============
