@@ -24,6 +24,9 @@ from vlm_client import VLMClient
 from behavior_analyzer import BehaviorAnalyzer, VideoAnalysisSummary
 from report_generator import ReportGenerator
 
+# Import agent router for incident orchestration
+from agent.routes import router as agent_router
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -163,7 +166,43 @@ class ConnectionManager:
                     pass
 
 
+class DeviceConnectionManager:
+    """Manages WebSocket connections for mobile devices."""
+    
+    def __init__(self):
+        self.device_connections: Dict[str, WebSocket] = {}
+    
+    async def connect(self, websocket: WebSocket, device_id: str):
+        await websocket.accept()
+        self.device_connections[device_id] = websocket
+        logger.info(f"Device {device_id} connected via WebSocket")
+    
+    def disconnect(self, device_id: str):
+        if device_id in self.device_connections:
+            del self.device_connections[device_id]
+            logger.info(f"Device {device_id} disconnected")
+    
+    async def send_command(self, device_id: str, command: dict) -> bool:
+        """Send command to specific device."""
+        if device_id in self.device_connections:
+            try:
+                await self.device_connections[device_id].send_json(command)
+                logger.info(f"Command sent to device {device_id}: {command.get('command')}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to send command to device {device_id}: {e}")
+                return False
+        else:
+            logger.warning(f"Device {device_id} not connected")
+            return False
+    
+    def is_connected(self, device_id: str) -> bool:
+        """Check if device is connected."""
+        return device_id in self.device_connections
+
+
 manager = ConnectionManager()
+device_manager = DeviceConnectionManager()
 
 
 # ============ Analysis Engine ============
@@ -440,6 +479,9 @@ engine = AnalysisEngine()
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     logger.info("Starting Video Analysis API Server...")
+    # Initialize orchestrator with device manager
+    from agent.routes import init_orchestrator
+    init_orchestrator(device_manager=device_manager)
     yield
     logger.info("Shutting down...")
     if engine.mongodb:
@@ -461,6 +503,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include agent router for incident orchestration endpoints
+app.include_router(agent_router)
 
 
 # ============ Endpoints ============
@@ -768,33 +813,71 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
     
     Connect to receive live updates during video analysis.
     """
-    await manager.connect(websocket, job_id)
-    
-    try:
-        # Send current status if job exists
-        if job_id in analysis_jobs:
-            await websocket.send_json({
-                "type": "status",
-                "status": analysis_jobs[job_id]["status"],
-                "progress": analysis_jobs[job_id]["progress"]
-            })
+    # Check if this is a device ID (UUID format) or job ID
+    if len(job_id) == 36 and job_id.count('-') == 4:  # Looks like a UUID (device_id)
+        # This is a device connection
+        await device_manager.connect(websocket, job_id)
         
-        # Keep connection alive
-        while True:
-            try:
-                data = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=30.0
-                )
-                # Handle ping
-                if data == "ping":
-                    await websocket.send_json({"type": "pong"})
-            except asyncio.TimeoutError:
-                # Send keepalive
-                await websocket.send_json({"type": "keepalive"})
-                
-    except WebSocketDisconnect:
-        manager.disconnect(websocket, job_id)
+        try:
+            # Keep connection alive and handle messages
+            while True:
+                try:
+                    data = await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=60.0
+                    )
+                    import json
+                    message = json.loads(data)
+                    
+                    # Handle different message types
+                    msg_type = message.get('type')
+                    if msg_type == 'connect':
+                        await websocket.send_json({
+                            "type": "connected",
+                            "device_id": job_id,
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                    elif msg_type == 'heartbeat':
+                        await websocket.send_json({"type": "pong"})
+                    elif msg_type == 'ack':
+                        logger.info(f"Device {job_id} acknowledged message: {message}")
+                        
+                except asyncio.TimeoutError:
+                    # Send keepalive
+                    await websocket.send_json({"type": "keepalive"})
+                    
+        except WebSocketDisconnect:
+            device_manager.disconnect(job_id)
+            logger.info(f"Device {job_id} disconnected")
+    else:
+        # This is a job/analysis connection (original behavior)
+        await manager.connect(websocket, job_id)
+        
+        try:
+            # Send current status if job exists
+            if job_id in analysis_jobs:
+                await websocket.send_json({
+                    "type": "status",
+                    "status": analysis_jobs[job_id]["status"],
+                    "progress": analysis_jobs[job_id]["progress"]
+                })
+            
+            # Keep connection alive
+            while True:
+                try:
+                    data = await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=30.0
+                    )
+                    # Handle ping
+                    if data == "ping":
+                        await websocket.send_json({"type": "pong"})
+                except asyncio.TimeoutError:
+                    # Send keepalive
+                    await websocket.send_json({"type": "keepalive"})
+                    
+        except WebSocketDisconnect:
+            manager.disconnect(websocket, job_id)
 
 
 # ============ Run Server ============
