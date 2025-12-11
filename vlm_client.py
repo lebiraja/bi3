@@ -40,6 +40,7 @@ class VLMClient:
     Async client for OpenRouter Vision-Language Model API.
     
     Uses qwen/qwen3-vl-8b-instruct for video frame analysis.
+    Optimized for parallel requests with connection pooling.
     """
     
     def __init__(self, api_key: str = None, model: str = None):
@@ -53,6 +54,7 @@ class VLMClient:
         self.api_key = api_key or Config.OPENROUTER_API_KEY
         self.model = model or Config.VLM_MODEL
         self.base_url = Config.OPENROUTER_BASE_URL
+        self.timeout = Config.VLM_REQUEST_TIMEOUT
         
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -60,6 +62,9 @@ class VLMClient:
             "HTTP-Referer": "video-analysis-pipeline",
             "X-Title": "Video Behavior Analyzer"
         }
+        
+        # Reusable session for connection pooling (improves parallel performance)
+        self._session: Optional[aiohttp.ClientSession] = None
     
     def _build_image_content(self, base64_images: List[str]) -> List[dict]:
         """
@@ -82,6 +87,30 @@ class VLMClient:
             })
         
         return content
+    
+    async def get_session(self) -> aiohttp.ClientSession:
+        """
+        Get or create aiohttp session with connection pooling.
+        Reuses connections for better performance in parallel requests.
+        """
+        if self._session is None or self._session.closed:
+            # Configure connector for better parallel performance
+            connector = aiohttp.TCPConnector(
+                limit=Config.VLM_MAX_CONCURRENT * 2,  # Allow more connections than concurrent requests
+                limit_per_host=Config.VLM_MAX_CONCURRENT * 2,
+                ttl_dns_cache=300  # Cache DNS for 5 minutes
+            )
+            self._session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
+            )
+        return self._session
+    
+    async def close(self):
+        """Close the aiohttp session and cleanup resources."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
     
     async def analyze_frames(
         self,
@@ -133,13 +162,12 @@ class VLMClient:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.base_url,
-                    headers=self.headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=60)
-                ) as response:
+            session = await self.get_session()
+            async with session.post(
+                self.base_url,
+                headers=self.headers,
+                json=payload
+            ) as response:
                     if response.status != 200:
                         error_text = await response.text()
                         return VLMResponse(
@@ -187,9 +215,10 @@ class VLMClient:
                     )
                     
         except asyncio.TimeoutError:
+            logger.warning(f"VLM request timed out after {self.timeout}s")
             return VLMResponse(
                 success=False,
-                error="Request timed out"
+                error=f"Request timed out after {self.timeout}s"
             )
         except aiohttp.ClientError as e:
             return VLMResponse(

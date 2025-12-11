@@ -35,7 +35,9 @@ class Config:
     VEHICLE_CLASSES: list = [2, 3, 5, 7]  # car, motorcycle, bus, truck
     
     # Parallel Processing Settings
-    VLM_MAX_CONCURRENT: int = int(os.getenv("VLM_MAX_CONCURRENT", "4"))  # Concurrent VLM API calls
+    VLM_MAX_CONCURRENT: int = int(os.getenv("VLM_MAX_CONCURRENT", "10"))  # Concurrent VLM API calls (increased from 4)
+    VLM_REQUEST_TIMEOUT: int = int(os.getenv("VLM_REQUEST_TIMEOUT", "60"))  # Timeout per request in seconds
+    VLM_RETRY_ATTEMPTS: int = int(os.getenv("VLM_RETRY_ATTEMPTS", "2"))  # Retry failed requests
     
     # Class name mapping (COCO dataset)
     CLASS_NAMES: dict = {

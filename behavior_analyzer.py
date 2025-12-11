@@ -239,31 +239,51 @@ class BehaviorAnalyzer:
         self,
         frame_batches: List[List[FrameData]],
         yolo_detections: Dict[int, List[dict]],
-        max_concurrent: int = 3
+        max_concurrent: int = None,
+        progress_callback=None
     ) -> List[SecondAnalysis]:
         """
-        Analyze multiple seconds of video in parallel.
+        Analyze multiple seconds of video in parallel with optimized concurrency.
         
         Args:
             frame_batches: List of frame batches (each batch = 3 frames from 1 second)
             yolo_detections: All YOLO detections indexed by frame number
-            max_concurrent: Maximum concurrent API calls
+            max_concurrent: Maximum concurrent API calls (uses Config.VLM_MAX_CONCURRENT if None)
+            progress_callback: Optional callback for progress updates (receives completed_count, total_count)
         
         Returns:
             List of SecondAnalysis results
         """
+        if max_concurrent is None:
+            max_concurrent = Config.VLM_MAX_CONCURRENT
+        
+        logger.info(f"Starting parallel analysis of {len(frame_batches)} seconds with concurrency={max_concurrent}")
+        
         semaphore = asyncio.Semaphore(max_concurrent)
+        completed_count = 0
+        total_count = len(frame_batches)
         
         async def analyze_with_semaphore(batch: List[FrameData], idx: int):
+            nonlocal completed_count
             async with semaphore:
-                return await self.analyze_second(batch, yolo_detections, idx)
+                result = await self.analyze_second(batch, yolo_detections, idx)
+                completed_count += 1
+                
+                if progress_callback:
+                    try:
+                        await progress_callback(completed_count, total_count)
+                    except Exception as e:
+                        logger.warning(f"Progress callback error: {e}")
+                
+                logger.debug(f"Completed {completed_count}/{total_count} seconds")
+                return result
         
         tasks = [
             analyze_with_semaphore(batch, idx)
             for idx, batch in enumerate(frame_batches)
         ]
         
-        return await asyncio.gather(*tasks)
+        return await asyncio.gather(*tasks, return_exceptions=False)
     
     def create_video_summary(
         self,
