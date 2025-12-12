@@ -102,6 +102,17 @@ export const LiveStream = () => {
                     }
                     break;
 
+                case 'yolo_video_frame':
+                    // Real-time annotated video feed with YOLO detections drawn
+                    if (data.frame) {
+                        setCurrentFrame({
+                            frame: data.frame,
+                            detections: [],  // Detections already drawn on frame
+                            frameNumber: data.frame_number,
+                        });
+                    }
+                    break;
+
                 case 'vlm_summary':
                     if (data.analysis) {
                         setLatestSummary(data.analysis);

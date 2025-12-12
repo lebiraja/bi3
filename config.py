@@ -63,12 +63,14 @@ class Config:
     STREAM_INIT_DURATION: int = 20   # seconds for initialization
     STREAM_MAX_CONCURRENT: int = 3   # max concurrent streams
     STREAM_QUALITY: str = "720p"     # preferred stream quality
-    STREAM_TIMEOUT: int = 30         # stream connection timeout
+    STREAM_TIMEOUT: int = 60         # stream connection timeout (increased for stability)
     
     # Stream Optimization Settings
     STREAM_VLM_INTERVAL: int = 3     # Analyze every N seconds (1=all, 3=every 3rd)
     STREAM_SKIP_LOW_ACTIVITY: bool = True  # Skip VLM when few vehicles
     STREAM_MIN_VEHICLES_FOR_VLM: int = 2   # Minimum vehicles to trigger VLM
+    STREAM_VLM_MAX_PER_KEY: int = 3  # Max concurrent VLM requests per API key for live streams
+    STREAM_VLM_TOTAL_MAX: int = 9    # Total max concurrent VLM (3 keys × 3 requests)
     VLM_MAX_CONCURRENT: int = 15     # Increased from 10 for faster processing
     
     @classmethod

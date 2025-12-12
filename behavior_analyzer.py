@@ -117,14 +117,25 @@ class BehaviorAnalyzer:
     integrates YOLO detection data, and aggregates results.
     """
     
-    def __init__(self, vlm_client: VLMClient = None):
+    def __init__(self, vlm_client: VLMClient = None, is_stream: bool = False):
         """
         Initialize behavior analyzer.
         
         Args:
             vlm_client: VLM client instance (creates new if not provided)
+            is_stream: Whether this is for live stream analysis (uses lower concurrency limits)
         """
-        self.vlm_client = vlm_client or VLMClient()
+        if vlm_client:
+            self.vlm_client = vlm_client
+        elif is_stream:
+            # For live streams, use per-key concurrency limits to reduce latency
+            from config import Config
+            self.vlm_client = VLMClient(max_concurrent_per_key=Config.STREAM_VLM_MAX_PER_KEY)
+            logger.info(f"BehaviorAnalyzer initialized for LIVE STREAM with {Config.STREAM_VLM_MAX_PER_KEY} requests per API key")
+        else:
+            # For video uploads, use default (no per-key limits)
+            self.vlm_client = VLMClient()
+            logger.info("BehaviorAnalyzer initialized for VIDEO UPLOAD (no per-key limits)")
     
     def _prepare_yolo_data(
         self,
@@ -161,36 +172,23 @@ class BehaviorAnalyzer:
         Args:
             response: VLM API response
             second_index: Index of the second being analyzed
-            frame_data: List of FrameData objects
+            parsed_json: Parsed JSON response from VLM
+            second_index: Index of the second being analyzed
+            timestamp_start_ms: Start timestamp of the second
+            timestamp_end_ms: End timestamp of the second
+            frame_numbers: List of frame numbers in the batch
         
         Returns:
             SecondAnalysis object
         """
-        frame_numbers = [f.frame_number for f in frame_data]
-        timestamp_start = min(f.timestamp_ms for f in frame_data) if frame_data else 0
-        timestamp_end = max(f.timestamp_ms for f in frame_data) if frame_data else 0
-        
-        if not response.success:
-            return SecondAnalysis(
-                second_index=second_index,
-                timestamp_start_ms=timestamp_start,
-                timestamp_end_ms=timestamp_end,
-                frame_numbers=frame_numbers,
-                success=False,
-                error=response.error
-            )
-        
-        # Parse JSON response
-        parsed = response.parsed_json or {}
-        
         # Extract observations
         observations = [
             BehaviorObservation.from_dict(obs)
-            for obs in parsed.get("observations", [])
+            for obs in parsed_json.get("observations", [])
         ]
         
         # Extract overall assessment
-        assessment = parsed.get("overall_assessment", {})
+        assessment = parsed_json.get("overall_assessment", {})
         
         return SecondAnalysis(
             second_index=second_index,

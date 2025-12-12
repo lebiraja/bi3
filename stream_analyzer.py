@@ -68,7 +68,7 @@ class StreamAnalyzer:
         
         # Initialize components
         self.yolo_detector = YOLODetector()
-        self.behavior_analyzer = BehaviorAnalyzer()
+        self.behavior_analyzer = BehaviorAnalyzer(is_stream=True)  # Use stream-specific VLM limits
         self.report_generator = ReportGenerator()
         
         # MongoDB setup
@@ -80,7 +80,7 @@ class StreamAnalyzer:
         # Active analysis tasks
         self.analysis_tasks: Dict[str, asyncio.Task] = {}
         
-        logger.info("StreamAnalyzer initialized")
+        logger.info("StreamAnalyzer initialized with stream-optimized VLM settings")
     
     async def start_analysis(
         self,
@@ -318,6 +318,27 @@ class StreamAnalyzer:
                         'frame_number': frame_data.frame_number,
                         'detections': detections,
                         'frame_base64': frame_data.base64_encoded,  # Use pre-encoded base64
+                    })
+                
+                # Send annotated video frame every 2 seconds (6 frames at 3fps)
+                if event_callback and frame_data.frame_number % 6 == 0:
+                    # Draw YOLO detections on frame
+                    annotated_frame = self.yolo_detector.draw_detections(frame_data.image_data, detections)
+                    
+                    # Encode annotated frame to base64
+                    import cv2
+                    import base64
+                    _, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    annotated_base64 = base64.b64encode(buffer).decode('utf-8')
+                    
+                    await event_callback({
+                        'type': 'yolo_video_frame',
+                        'stream_id': stream_id,
+                        'batch_index': batch_index,
+                        'frame_number': frame_data.frame_number,
+                        'frame': annotated_base64,
+                        'detection_count': len(detections),
+                        'timestamp': time.time()
                     })
             
             logger.info(f"[{stream_id}] YOLO detection complete")

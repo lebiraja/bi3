@@ -83,6 +83,55 @@ class YOLODetector:
                     detections.append(det)
         
         return detections
+    
+    def draw_detections(self, frame, detections: List[dict]):
+        """
+        Draw YOLO detections on frame with bounding boxes and labels.
+        
+        Args:
+            frame: OpenCV frame (numpy array)
+            detections: List of detection dictionaries
+        
+        Returns:
+            Annotated frame
+        """
+        import cv2
+        import numpy as np
+        
+        # Create a copy to avoid modifying original
+        annotated = frame.copy()
+        
+        # Define colors for different classes
+        colors = {
+            2: (0, 255, 0),      # car - green
+            3: (255, 0, 0),      # motorcycle - blue
+            5: (0, 165, 255),    # bus - orange
+            7: (0, 255, 255)     # truck - yellow
+        }
+        
+        for det in detections:
+            bbox = det['bbox']
+            class_name = det['class_name']
+            confidence = det['confidence']
+            class_id = det['class_id']
+            
+            # Get color for this class
+            color = colors.get(class_id, (255, 255, 255))
+            
+            # Draw bounding box
+            x1, y1, x2, y2 = map(int, bbox)
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+            
+            # Draw label background
+            label = f"{class_name} {confidence:.2f}"
+            (label_w, label_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            cv2.rectangle(annotated, (x1, y1 - label_h - 10), (x1 + label_w, y1), color, -1)
+            
+            # Draw label text
+            cv2.putText(annotated, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 
+                       0.5, (0, 0, 0), 1, cv2.LINE_AA)
+        
+        return annotated
 
 
 class VideoAnalyzer:

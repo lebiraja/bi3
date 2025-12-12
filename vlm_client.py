@@ -43,13 +43,14 @@ class VLMClient:
     Optimized for parallel requests with connection pooling.
     """
     
-    def __init__(self, api_key: str = None, model: str = None):
+    def __init__(self, api_key: str = None, model: str = None, max_concurrent_per_key: int = None):
         """
         Initialize VLM client.
         
         Args:
             api_key: OpenRouter API key (uses Config if not provided)
             model: Model identifier (uses Config if not provided)
+            max_concurrent_per_key: Max concurrent requests per API key (for live streams)
         """
         # Support for multiple API keys (load balancing)
         self.api_keys = Config.OPENROUTER_API_KEYS if Config.OPENROUTER_API_KEYS else [api_key or Config.OPENROUTER_API_KEY]
@@ -59,6 +60,17 @@ class VLMClient:
         self.model = model or Config.VLM_MODEL
         self.base_url = Config.OPENROUTER_BASE_URL
         self.timeout = Config.VLM_REQUEST_TIMEOUT
+        
+        # Per-key semaphores for limiting concurrent requests (live stream optimization)
+        self.max_concurrent_per_key = max_concurrent_per_key
+        if max_concurrent_per_key:
+            self.per_key_semaphores = {
+                key: asyncio.Semaphore(max_concurrent_per_key) 
+                for key in self.api_keys
+            }
+            logger.info(f"VLM Client: Limiting to {max_concurrent_per_key} concurrent requests per API key")
+        else:
+            self.per_key_semaphores = None
         
         # Log API key configuration
         if len(self.api_keys) > 1:
@@ -193,68 +205,89 @@ class VLMClient:
             "response_format": {"type": "json_object"}
         }
         
+        # Get API key and headers for this request
+        api_key = self._get_next_api_key()
+        headers = self._get_headers(api_key)
+        
+        # Use per-key semaphore if configured (for live stream rate limiting)
+        semaphore = None
+        if self.per_key_semaphores:
+            semaphore = self.per_key_semaphores.get(api_key)
+        
         try:
-            # Get next API key for load balancing
-            api_key = self._get_next_api_key()
-            if not api_key:
-                return VLMResponse(
-                    success=False,
-                    error="OpenRouter API key not configured"
-                )
-            
-            headers = self._get_headers(api_key)
-            
             session = await self.get_session()
-            async with session.post(
-                self.base_url,
-                headers=headers,
-                json=payload
-            ) as response:
+            response_data = None
+            
+            if semaphore:
+                # Acquire semaphore to limit concurrent requests per key
+                async with semaphore:
+                    async with session.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=self.timeout)
+                    ) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            logger.error(f"❌ VLM API error {response.status}: {error_text[:200]}")
+                            return VLMResponse(
+                                success=False,
+                                error=f"API error {response.status}: {error_text}"
+                            )
+                        response_data = await response.json()
+            else:
+                # No rate limiting
+                async with session.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=self.timeout)
+                ) as response:
                     if response.status != 200:
                         error_text = await response.text()
+                        logger.error(f"❌ VLM API error {response.status}: {error_text[:200]}")
                         return VLMResponse(
                             success=False,
                             error=f"API error {response.status}: {error_text}"
                         )
-                    
-                    result = await response.json()
-                    
-                    # Extract content from response
-                    content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    usage = result.get("usage", {})
-                    
-                    # Try to parse JSON response (may be wrapped in markdown)
-                    parsed_json = None
+                    response_data = await response.json()
+            
+            # Extract content from response
+            content = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            usage = response_data.get("usage", {})
+            
+            # Try to parse JSON response (may be wrapped in markdown)
+            parsed_json = None
+            try:
+                parsed_json = json.loads(content)
+            except json.JSONDecodeError:
+                # Try to extract JSON from markdown code block
+                import re
+                json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+                if json_match:
                     try:
-                        parsed_json = json.loads(content)
+                        parsed_json = json.loads(json_match.group(1))
                     except json.JSONDecodeError:
-                        # Try to extract JSON from markdown code block
-                        import re
-                        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
-                        if json_match:
-                            try:
-                                parsed_json = json.loads(json_match.group(1))
-                            except json.JSONDecodeError:
-                                pass
-                        
-                        # If still no JSON, create a basic structure from content
-                        if parsed_json is None:
-                            logger.debug("VLM response not JSON, using text-based fallback")
-                            parsed_json = {
-                                "observations": [],
-                                "overall_assessment": {
-                                    "risk_score": 2,
-                                    "summary": content[:500] if content else "No analysis available",
-                                    "recommended_alerts": []
-                                }
-                            }
-                    
-                    return VLMResponse(
-                        success=True,
-                        content=content,
-                        parsed_json=parsed_json,
-                        usage=usage
-                    )
+                        pass
+                
+                # If still no JSON, create a basic structure from content
+                if parsed_json is None:
+                    logger.debug("VLM response not JSON, using text-based fallback")
+                    parsed_json = {
+                        "observations": [],
+                        "overall_assessment": {
+                            "risk_score": 2,
+                            "summary": content[:500] if content else "No analysis available",
+                            "recommended_alerts": []
+                        }
+                    }
+            
+            return VLMResponse(
+                success=True,
+                content=content,
+                parsed_json=parsed_json,
+                usage=usage
+            )
                     
         except asyncio.TimeoutError:
             logger.warning(f"VLM request timed out after {self.timeout}s")
