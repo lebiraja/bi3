@@ -162,21 +162,21 @@ class BehaviorAnalyzer:
     
     def _parse_vlm_response(
         self,
-        response: VLMResponse,
+        parsed_json: dict,
         second_index: int,
-        frame_data: List[FrameData]
+        timestamp_start: float,
+        timestamp_end: float,
+        frame_numbers: List[int]
     ) -> SecondAnalysis:
         """
         Parse VLM response into SecondAnalysis.
         
         Args:
-            response: VLM API response
-            second_index: Index of the second being analyzed
             parsed_json: Parsed JSON response from VLM
             second_index: Index of the second being analyzed
-            timestamp_start_ms: Start timestamp of the second
-            timestamp_end_ms: End timestamp of the second
-            frame_numbers: List of frame numbers in the batch
+            timestamp_start: Start timestamp in ms
+            timestamp_end: End timestamp in ms
+            frame_numbers: List of frame numbers
         
         Returns:
             SecondAnalysis object
@@ -199,7 +199,7 @@ class BehaviorAnalyzer:
             risk_score=assessment.get("risk_score", 0),
             summary=assessment.get("summary", ""),
             recommended_alerts=assessment.get("recommended_alerts", []),
-            raw_response=parsed,
+            raw_response=parsed_json,  # Fixed: was 'parsed'
             success=True
         )
     
@@ -227,11 +227,33 @@ class BehaviorAnalyzer:
         frame_numbers = [f.frame_number for f in frames]
         yolo_data = self._prepare_yolo_data(yolo_detections, frame_numbers)
         
+        # Extract timestamps
+        timestamp_start = min(f.timestamp_ms for f in frames) if frames else 0
+        timestamp_end = max(f.timestamp_ms for f in frames) if frames else 0
+        
         # Call VLM
         response = await self.vlm_client.analyze_frames(base64_frames, yolo_data)
         
-        # Parse response
-        return self._parse_vlm_response(response, second_index, frames)
+        # Check for VLM errors
+        if not response.success:
+            logger.error(f"❌ VLM analysis failed for second {second_index}: {response.error}")
+            return SecondAnalysis(
+                second_index=second_index,
+                timestamp_start_ms=timestamp_start,
+                timestamp_end_ms=timestamp_end,
+                frame_numbers=frame_numbers,
+                success=False,
+                error=response.error
+            )
+        
+        # Parse response with correct parameters
+        return self._parse_vlm_response(
+            response.parsed_json,
+            second_index,
+            timestamp_start,
+            timestamp_end,
+            frame_numbers
+        )
     
     async def analyze_video_parallel(
         self,

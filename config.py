@@ -21,7 +21,7 @@ class Config:
         key.strip() for key in os.getenv("OPENROUTER_API_KEYS", os.getenv("OPENROUTER_API_KEY", "")).split(",")
         if key.strip()
     ]
-    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1/chat/completions"
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"  # Fixed: removed /chat/completions
     VLM_MODEL: str = "qwen/qwen3-vl-8b-instruct"
     
     # MongoDB Settings
