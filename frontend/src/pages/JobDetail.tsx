@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -29,6 +29,7 @@ import {
 import type { ReportTabType } from '../components/ui';
 import { getJob, getEnhancedReport } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useNotifications } from '../contexts/NotificationContext';
 import type { AnalysisJob, BehaviorObservation, WSMessage, EnhancedReport as EnhancedReportType } from '../types/api';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
@@ -43,11 +44,13 @@ import {
 export const JobDetail = () => {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
+  const { addNotification, addPageNotification } = useNotifications();
   const [job, setJob] = useState<AnalysisJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedObservations, setExpandedObservations] = useState<Set<number>>(
     new Set()
   );
+  const hasNotifiedRef = useRef(false);
 
   // Report tabs state
   const [activeReportTab, setActiveReportTab] = useState<ReportTabType>('classical');
@@ -79,18 +82,30 @@ export const JobDetail = () => {
             }
             : null
         );
+        addNotification('success', 'Job Completed', `Analysis for job ${jobId?.slice(0, 8)}... finished successfully`);
       }
     },
   });
 
   useEffect(() => {
+    hasNotifiedRef.current = false;
+
     const fetchJob = async () => {
       if (!jobId) return;
       try {
         const data = await getJob(jobId);
         setJob(data);
+        
+        if (!hasNotifiedRef.current) {
+          addPageNotification(`job-${jobId}`, 'info', 'Job Details Loaded', `Viewing analysis job ${jobId.slice(0, 8)}...`);
+          hasNotifiedRef.current = true;
+        }
       } catch (error) {
         console.error('Failed to fetch job:', error);
+        if (!hasNotifiedRef.current) {
+          addNotification('error', 'Failed to Load Job', 'Could not retrieve job details. Please try again.');
+          hasNotifiedRef.current = true;
+        }
       } finally {
         setLoading(false);
       }
@@ -99,7 +114,7 @@ export const JobDetail = () => {
     fetchJob();
     const interval = setInterval(fetchJob, 3000);
     return () => clearInterval(interval);
-  }, [jobId]);
+  }, [jobId, addNotification, addPageNotification]);
 
   // Fetch enhanced report when tab changes to enhanced
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   Settings as SettingsIcon,
@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { Header } from '../components/layout';
 import { Card, Button } from '../components/ui';
+import { SystemStatusCard } from '../components/ui/StatusIndicator';
+import { useNotifications } from '../contexts/NotificationContext';
 import { getConfig, getHealth } from '../services/api';
 import type { ConfigResponse, HealthResponse } from '../types/api';
 
@@ -19,6 +21,8 @@ export const Settings = () => {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const { addNotification, addPageNotification } = useNotifications();
+  const hasNotifiedRef = useRef(false);
 
   const fetchData = async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
@@ -29,8 +33,16 @@ export const Settings = () => {
       ]);
       setConfig(configData);
       setHealth(healthData);
+      
+      if (showRefresh) {
+        addNotification('success', 'Settings Refreshed', 'System configuration updated successfully');
+      }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
+      if (!hasNotifiedRef.current) {
+        addNotification('error', 'Settings Error', 'Failed to fetch system configuration');
+        hasNotifiedRef.current = true;
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -39,6 +51,11 @@ export const Settings = () => {
 
   useEffect(() => {
     fetchData();
+    if (!hasNotifiedRef.current) {
+      addPageNotification('settings', 'info', 'Settings Loaded', 'Viewing system configuration and status');
+      hasNotifiedRef.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) {
@@ -59,6 +76,23 @@ export const Settings = () => {
         title="Settings"
         subtitle="System configuration and status"
       />
+
+      {/* System Status Overview */}
+      <motion.div
+        className="mb-6"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+      >
+        <SystemStatusCard
+          title="System Status"
+          items={[
+            { name: 'API Server', status: health?.status === 'healthy' ? 'online' : 'offline' },
+            { name: 'MongoDB', status: config?.mongodb_connected ? 'online' : 'offline' },
+            { name: 'VLM Service', status: config?.vlm_model ? 'online' : 'offline' },
+          ]}
+        />
+      </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* API Status */}
@@ -87,24 +121,24 @@ export const Settings = () => {
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-slate-800/30 rounded-xl">
+              <div className="flex items-center justify-between p-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" />
-                  <span className="text-white font-medium">Server Status</span>
+                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse shadow-sm shadow-green-300" />
+                  <span className="text-gray-900 font-medium">Server Status</span>
                 </div>
-                <span className="text-green-400 font-medium">
+                <span className="text-green-700 font-semibold">
                   {health?.status || 'Unknown'}
                 </span>
               </div>
 
-              <div className="flex items-center justify-between p-4 bg-slate-800/30 rounded-xl">
-                <span className="text-slate-400">Service</span>
-                <span className="text-white">{health?.service || 'N/A'}</span>
+              <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl shadow-sm">
+                <span className="text-gray-600 font-medium">Service</span>
+                <span className="text-gray-900 font-semibold">{health?.service || 'N/A'}</span>
               </div>
 
-              <div className="flex items-center justify-between p-4 bg-slate-800/30 rounded-xl">
-                <span className="text-slate-400">Version</span>
-                <span className="text-white font-mono">{health?.version || 'N/A'}</span>
+              <div className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 rounded-xl shadow-sm">
+                <span className="text-gray-600 font-medium">Version</span>
+                <span className="text-gray-900 font-mono font-semibold">{health?.version || 'N/A'}</span>
               </div>
             </div>
           </Card>
@@ -125,20 +159,24 @@ export const Settings = () => {
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-slate-800/30 rounded-xl">
+              <div className={`flex items-center justify-between p-4 rounded-xl shadow-sm border ${
+                config?.mongodb_connected
+                  ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
+                  : 'bg-gradient-to-r from-red-50 to-rose-50 border-red-200'
+              }`}>
                 <div className="flex items-center gap-3">
                   <div
                     className={`w-3 h-3 rounded-full ${
                       config?.mongodb_connected
-                        ? 'bg-green-400 animate-pulse'
-                        : 'bg-red-400'
+                        ? 'bg-green-500 animate-pulse shadow-sm shadow-green-300'
+                        : 'bg-red-500'
                     }`}
                   />
-                  <span className="text-white font-medium">MongoDB</span>
+                  <span className="text-gray-900 font-medium">MongoDB</span>
                 </div>
                 <span
-                  className={`font-medium ${
-                    config?.mongodb_connected ? 'text-green-400' : 'text-red-400'
+                  className={`font-semibold ${
+                    config?.mongodb_connected ? 'text-green-700' : 'text-red-700'
                   }`}
                 >
                   {config?.mongodb_connected ? 'Connected' : 'Disconnected'}
@@ -146,8 +184,8 @@ export const Settings = () => {
               </div>
 
               {!config?.mongodb_connected && (
-                <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
-                  <p className="text-sm text-yellow-400">
+                <div className="p-4 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl shadow-sm">
+                  <p className="text-sm text-amber-700 font-medium">
                     MongoDB is not connected. Analysis results will not be persisted.
                   </p>
                 </div>
@@ -171,17 +209,17 @@ export const Settings = () => {
             </div>
 
             <div className="space-y-4">
-              <div className="p-4 bg-slate-800/30 rounded-xl">
-                <p className="text-sm text-slate-400 mb-1">Model</p>
-                <p className="text-white font-mono text-sm">
+              <div className="p-4 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 rounded-xl shadow-sm">
+                <p className="text-sm text-purple-600 font-medium mb-1">Model</p>
+                <p className="text-gray-900 font-mono text-sm font-semibold">
                   {config?.vlm_model || 'Not configured'}
                 </p>
               </div>
 
-              <div className="p-4 bg-slate-800/30 rounded-xl">
-                <p className="text-sm text-slate-400 mb-1">Provider</p>
+              <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl shadow-sm">
+                <p className="text-sm text-blue-600 font-medium mb-1">Provider</p>
                 <div className="flex items-center gap-2">
-                  <span className="text-white">OpenRouter</span>
+                  <span className="text-gray-900 font-semibold">OpenRouter</span>
                   <a
                     href="https://openrouter.ai"
                     target="_blank"
@@ -211,16 +249,16 @@ export const Settings = () => {
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-slate-800/30 rounded-xl">
-                <span className="text-slate-400">Frames per Second</span>
-                <span className="text-white font-semibold">
+              <div className="flex items-center justify-between p-4 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-100 rounded-xl shadow-sm">
+                <span className="text-gray-600 font-medium">Frames per Second</span>
+                <span className="text-gray-900 font-bold">
                   {config?.frames_per_second || 0} FPS
                 </span>
               </div>
 
-              <div className="flex items-center justify-between p-4 bg-slate-800/30 rounded-xl">
-                <span className="text-slate-400">Sample Interval</span>
-                <span className="text-white font-semibold">
+              <div className="flex items-center justify-between p-4 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100 rounded-xl shadow-sm">
+                <span className="text-gray-600 font-medium">Sample Interval</span>
+                <span className="text-gray-900 font-bold">
                   Every {config?.sample_interval || 0} frames
                 </span>
               </div>
@@ -250,10 +288,10 @@ export const Settings = () => {
                 Object.entries(config.vehicle_classes).map(([id, name]) => (
                   <motion.div
                     key={id}
-                    className="p-4 bg-slate-800/30 rounded-xl text-center"
-                    whileHover={{ scale: 1.02 }}
+                    className="p-4 bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-100 rounded-xl text-center shadow-sm hover:shadow-md transition-all"
+                    whileHover={{ scale: 1.05, y: -2 }}
                   >
-                    <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-slate-700/50 flex items-center justify-center">
+                    <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-gradient-to-br from-cyan-100 to-blue-100 flex items-center justify-center shadow-sm">
                       <span className="text-2xl">
                         {name === 'car'
                           ? '🚗'
@@ -266,8 +304,8 @@ export const Settings = () => {
                           : '🚙'}
                       </span>
                     </div>
-                    <p className="text-white font-medium capitalize">{name}</p>
-                    <p className="text-sm text-slate-400">Class ID: {id}</p>
+                    <p className="text-gray-900 font-semibold capitalize">{name}</p>
+                    <p className="text-sm text-cyan-600 font-medium">Class ID: {id}</p>
                   </motion.div>
                 ))}
             </div>
@@ -292,14 +330,14 @@ export const Settings = () => {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-slate-700/50">
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                  <tr className="border-b-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                    <th className="text-left py-3 px-4 text-blue-700 font-semibold">
                       Method
                     </th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                    <th className="text-left py-3 px-4 text-blue-700 font-semibold">
                       Endpoint
                     </th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium">
+                    <th className="text-left py-3 px-4 text-blue-700 font-semibold">
                       Description
                     </th>
                   </tr>
@@ -345,27 +383,27 @@ export const Settings = () => {
                   ].map((api, index) => (
                     <tr
                       key={index}
-                      className="border-b border-slate-800/50 hover:bg-slate-800/20"
+                      className="border-b border-gray-100 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-colors"
                     >
                       <td className="py-3 px-4">
                         <span
-                          className={`px-2 py-1 rounded text-xs font-medium ${
+                          className={`px-2 py-1 rounded-md text-xs font-bold shadow-sm ${
                             api.method === 'GET'
-                              ? 'bg-green-500/20 text-green-400'
+                              ? 'bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 border border-green-200'
                               : api.method === 'POST'
-                              ? 'bg-blue-500/20 text-blue-400'
-                              : 'bg-purple-500/20 text-purple-400'
+                              ? 'bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-700 border border-blue-200'
+                              : 'bg-gradient-to-r from-purple-100 to-indigo-100 text-purple-700 border border-purple-200'
                           }`}
                         >
                           {api.method}
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <code className="text-sm text-slate-300 font-mono">
+                        <code className="text-sm text-gray-800 font-mono font-semibold">
                           {api.endpoint}
                         </code>
                       </td>
-                      <td className="py-3 px-4 text-slate-400">
+                      <td className="py-3 px-4 text-gray-600">
                         {api.description}
                       </td>
                     </tr>

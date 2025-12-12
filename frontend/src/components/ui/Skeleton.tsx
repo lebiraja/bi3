@@ -23,7 +23,7 @@ export const Skeleton = ({
   return (
     <motion.div
       className={clsx(
-        'bg-slate-700/50 shimmer',
+        'bg-gray-200 shimmer',
         variantClasses[variant],
         className
       )}
@@ -36,7 +36,7 @@ export const Skeleton = ({
 };
 
 export const CardSkeleton = () => (
-  <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 space-y-4">
+  <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4 shadow-sm">
     <div className="flex items-center gap-4">
       <Skeleton variant="rectangular" width={48} height={48} />
       <div className="flex-1 space-y-2">

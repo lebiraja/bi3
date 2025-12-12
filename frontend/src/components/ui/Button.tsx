@@ -28,17 +28,17 @@ export const Button = ({
   type = 'button',
 }: ButtonProps) => {
   const baseClasses =
-    'inline-flex items-center justify-center gap-2 font-semibold rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900';
+    'inline-flex items-center justify-center gap-2 font-semibold rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white';
 
   const variantClasses = {
     primary:
-      'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 focus:ring-blue-500',
+      'text-white relative overflow-hidden',
     secondary:
-      'bg-slate-700 hover:bg-slate-600 text-white border border-slate-600 focus:ring-slate-500',
+      'backdrop-blur-[var(--liquid-blur)] text-[var(--text-primary)] hover:text-[var(--accent-primary)] border',
     danger:
-      'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white shadow-lg shadow-red-500/25 focus:ring-red-500',
+      'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white',
     ghost:
-      'bg-transparent hover:bg-slate-700/50 text-slate-300 hover:text-white focus:ring-slate-500',
+      'bg-transparent hover:backdrop-blur-sm text-[var(--text-secondary)] hover:text-[var(--accent-primary)]',
   };
 
   const sizeClasses = {
@@ -59,11 +59,34 @@ export const Button = ({
         isDisabled && 'opacity-50 cursor-not-allowed',
         className
       )}
+      style={variant === 'primary' ? {
+        background: 'var(--gradient-primary)',
+        boxShadow: '0 4px 20px rgba(99, 102, 241, 0.3)',
+        borderRadius: 'var(--radius-full)'
+      } : variant === 'secondary' ? {
+        background: 'var(--liquid-bg)',
+        borderColor: 'var(--border-color)',
+        borderRadius: 'var(--radius-full)',
+        boxShadow: 'var(--shadow-sm)'
+      } : variant === 'danger' ? {
+        boxShadow: '0 4px 20px rgba(239, 68, 68, 0.3)',
+        borderRadius: 'var(--radius-full)'
+      } : {
+        borderRadius: 'var(--radius-full)'
+      }}
       disabled={isDisabled}
       onClick={onClick}
-      whileHover={!isDisabled ? { scale: 1.02 } : undefined}
+      whileHover={!isDisabled ? { 
+        scale: 1.03, 
+        y: -3,
+        boxShadow: variant === 'primary' ? '0 12px 40px rgba(99, 102, 241, 0.45)' : undefined
+      } : undefined}
       whileTap={!isDisabled ? { scale: 0.98 } : undefined}
+      transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
     >
+      {variant === 'primary' && (
+        <span className="absolute inset-0 rounded-[var(--radius-full)] bg-gradient-to-r from-white/25 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-300" />
+      )}
       {loading ? (
         <motion.span
           className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
