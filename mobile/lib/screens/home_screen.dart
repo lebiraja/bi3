@@ -177,49 +177,54 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '🚨 Emergency Actions',
+              '🚨 Emergency SMS Alerts',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: Colors.red.shade800,
                   ),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => agent.callPolice(),
-                    icon: const Icon(Icons.local_police),
-                    label: const Text('Call Police'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  // Send emergency SMS to police
+                  final success = await agent.smsService.sendSms(
+                    '+919535879330',
+                    '🚨 EMERGENCY ALERT\n\nManual emergency alert triggered from BI3 mobile app.\n\nDevice: ${agent.deviceId.substring(0, 8)}\nTime: ${DateTime.now().toLocal()}\n\nImmediate response required.',
+                  );
+                  
+                  if (success) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('✅ Emergency SMS sent to police'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('❌ Failed to send emergency SMS'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.sms, size: 24),
+                label: const Text('Send Emergency SMS'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => agent.callAmbulance(),
-                    icon: const Icon(Icons.local_hospital),
-                    label: const Text('Call Ambulance'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Police: ${AppConfig.policeNumber}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text(
-              'Ambulance: ${AppConfig.ambulanceNumber}',
-              style: Theme.of(context).textTheme.bodySmall,
+              'Sends SMS alert to emergency services',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.red.shade700,
+                  ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -442,3 +447,4 @@ class _HomeScreenState extends State<HomeScreen> {
     return Colors.green;
   }
 }
+  

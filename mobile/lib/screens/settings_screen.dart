@@ -141,6 +141,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _editPhoneNumber(BuildContext context, AgentService agent) async {
+    final controller = TextEditingController(text: agent.phoneNumber ?? '');
+    
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Phone Number'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Phone Number',
+                hintText: '+919876543210',
+                helperText: 'Format: +[country code][number]',
+                prefixIcon: Icon(Icons.phone),
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.phone,
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Examples',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('• India: +919876543210', style: TextStyle(fontSize: 12)),
+                  const Text('• USA: +14155552671', style: TextStyle(fontSize: 12)),
+                  const Text('• UK: +442071838750', style: TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    
+    if (result != null && result.isNotEmpty && mounted) {
+      final success = await agent.updatePhoneNumber(result);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              success
+                  ? 'Phone number updated successfully!'
+                  : 'Invalid phone number format. Please use E.164 format (e.g., +919876543210)',
+            ),
+            backgroundColor: success ? Colors.green : Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   void dispose() {
     _serverUrlController.dispose();
@@ -163,6 +248,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Phone Number Section
+                    const Text(
+                      'Device Phone Number',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Configure your device phone number for outbound calls and SMS',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Consumer<AgentService>(
+                      builder: (context, agent, child) {
+                        return Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.phone, color: Colors.blue),
+                            title: const Text('Phone Number'),
+                            subtitle: Text(
+                              agent.phoneNumber ?? 'Not set',
+                              style: TextStyle(
+                                color: agent.phoneNumber != null ? Colors.black87 : Colors.grey,
+                              ),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () => _editPhoneNumber(context, agent),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Card(
+                      color: Colors.orange.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline, color: Colors.orange.shade700),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                'This number will be used as caller ID for emergency calls and SMS',
+                                style: TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    const Divider(),
+                    const SizedBox(height: 24),
+                    
+                    // Server Configuration Section
                     const Text(
                       'Server Configuration',
                       style: TextStyle(

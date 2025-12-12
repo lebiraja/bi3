@@ -8,6 +8,7 @@ import 'call_sms_service.dart';
 import 'websocket_service.dart';
 import 'preferences_service.dart';
 import 'logger_service.dart';
+import 'phone_service.dart';  // NEW
 
 /// Main service that orchestrates all agent functionality
 class AgentService extends ChangeNotifier {
@@ -17,8 +18,10 @@ class AgentService extends ChangeNotifier {
   late final CallService callService;
   late final SmsService smsService;
   late final WebSocketService wsService;
+  late final PhoneService phoneService;  // NEW
 
   String _deviceId = '';
+  String? _phoneNumber;  // NEW
   bool _isInitialized = false;
   bool _isConnected = false;
   List<Incident> _incidents = [];
@@ -28,6 +31,7 @@ class AgentService extends ChangeNotifier {
 
   // Getters
   String get deviceId => _deviceId;
+  String? get phoneNumber => _phoneNumber;  // NEW
   bool get isInitialized => _isInitialized;
   bool get isConnected => _isConnected;
   List<Incident> get incidents => _incidents;
@@ -57,13 +61,27 @@ class AgentService extends ChangeNotifier {
     // Initialize services
     apiService = ApiService(baseUrl: serverUrl, logger: logger);
     ttsService = TtsService();
-    callService = CallService(apiService: apiService, deviceId: _deviceId);
-    smsService = SmsService(apiService: apiService, deviceId: _deviceId);
+    phoneService = PhoneService();  // NEW
+    
+    // Load phone number from preferences
+    _phoneNumber = await phoneService.getPhoneNumber();  // NEW
+    if (_phoneNumber != null) {
+      logger.success('✅ Phone number loaded: $_phoneNumber');
+    } else {
+      logger.warning('⚠️ No phone number set. Please configure in Settings.');
+    }
+    
+    callService = CallService(
+      apiService: apiService,
+      deviceId: _deviceId,
+      phoneNumber: _phoneNumber,  // NEW
+    );
+    smsService = SmsService(
+      apiService: apiService,
+      deviceId: _deviceId,
+      phoneNumber: _phoneNumber,  // NEW
+    );
     wsService = WebSocketService(deviceId: _deviceId, baseUrl: serverUrl, logger: logger);
-
-    // Initialize TTS
-    await ttsService.initialize();
-    logger.success('✅ TTS service initialized');
 
     // Setup WebSocket callbacks
     wsService.onConnected = () {
@@ -122,13 +140,14 @@ class AgentService extends ChangeNotifier {
 
     logger.success('✅ Health check passed');
 
-    // Register device
+    // Register device with phone number
     final device = DeviceInfo(
       deviceId: _deviceId,
       pushToken: 'flutter-app-token-$_deviceId',
+      phoneNumber: _phoneNumber,  // NEW: Include phone number
     );
     await apiService.registerDevice(device);
-    logger.success('✅ Device registered');
+    logger.success('✅ Device registered${_phoneNumber != null ? " with phone: $_phoneNumber" : ""}');
 
     // Connect WebSocket
     final connected = await wsService.connect();
@@ -194,46 +213,13 @@ class AgentService extends ChangeNotifier {
 
     try {
       switch (command) {
-        case 'INITIATE_CALL':
-          final number = commandData['number'] as String?;
-          final spokenMessage = commandData['spoken_message'] as String?;
-          
-          if (number != null) {
-            logger.info('📞 Initiating call to $number');
-            
-            // Speak the message if provided
-            if (spokenMessage != null) {
-              logger.info('🔊 Speaking message: $spokenMessage');
-              await ttsService.speakEmergency(spokenMessage);
-            }
-            
-            // Initiate the call
-            final success = await callService.makeCall(number);
-            
-            if (success) {
-              logger.success('✅ Call initiated successfully to $number');
-            } else {
-              logger.error('❌ Failed to initiate call to $number');
-            }
-            
-            // Send callback to server
-            if (actionId != null) {
-              await apiService.sendActionCallback(
-                actionId: actionId,
-                deviceId: _deviceId,
-                status: success ? 'sent' : 'failed',
-                result: success ? 'Call initiated successfully' : 'Failed to initiate call',
-              );
-            }
-          }
-          break;
-
         case 'SEND_SMS':
           final number = commandData['number'] as String?;
           final message = commandData['message'] as String?;
           
           if (number != null && message != null) {
             logger.info('📧 Sending SMS to $number');
+            logger.info('📝 Message: $message');
             
             final success = await smsService.sendSms(number, message);
             
@@ -244,37 +230,70 @@ class AgentService extends ChangeNotifier {
             }
             
             // Send callback to server
+            // ✅ CORRECT: SMS uses 'sent' status (different from calls)
             if (actionId != null) {
-              await apiService.sendActionCallback(
+              final callback = MobileCallback(
                 actionId: actionId,
                 deviceId: _deviceId,
+                phoneNumber: _phoneNumber,  // NEW: Include phone number
                 status: success ? 'sent' : 'failed',
-                result: success ? 'SMS sent successfully' : 'Failed to send SMS',
+                timestamp: DateTime.now().toUtc().toIso8601String(),
               );
+              await apiService.sendActionCallback(callback);
+              logger.success('✅ SMS callback sent: ${callback.status}');
             }
+          }
+          break;
+
+        case 'NOTIFY':
+          final title = commandData['title'] as String? ?? 'Notification';
+          final message = commandData['message'] as String? ?? '';
+          
+          logger.info('🔔 Showing notification: $title');
+          
+          // For now, just log the notification
+          // In production, use flutter_local_notifications
+          logger.info('💬 $title: $message');
+          
+          // Send callback
+          if (actionId != null) {
+            final callback = MobileCallback(
+              actionId: actionId,
+              deviceId: _deviceId,
+              phoneNumber: _phoneNumber,
+              status: 'sent',
+              timestamp: DateTime.now().toUtc().toIso8601String(),
+            );
+            await apiService.sendActionCallback(callback);
           }
           break;
 
         default:
           logger.warning('⚠️ Unknown command: $command');
           if (actionId != null) {
-            await apiService.sendActionCallback(
+            final callback = MobileCallback(
               actionId: actionId,
               deviceId: _deviceId,
+              phoneNumber: _phoneNumber,
               status: 'failed',
-              result: 'Unknown command type',
+              errorMessage: 'Unknown command type',
+              timestamp: DateTime.now().toUtc().toIso8601String(),
             );
+            await apiService.sendActionCallback(callback);
           }
       }
     } catch (e) {
       logger.error('❌ Error handling action command: $e');
       if (actionId != null) {
-        await apiService.sendActionCallback(
+        final callback = MobileCallback(
           actionId: actionId,
           deviceId: _deviceId,
+          phoneNumber: _phoneNumber,
           status: 'failed',
           errorMessage: 'Error: $e',
+          timestamp: DateTime.now().toUtc().toIso8601String(),
         );
+        await apiService.sendActionCallback(callback);
       }
     }
   }
@@ -339,6 +358,45 @@ class AgentService extends ChangeNotifier {
   Future<void> callAmbulance() async {
     await ttsService.speakEmergency('Calling ambulance');
     await callService.callAmbulance();
+  }
+
+  /// Update phone number
+  Future<bool> updatePhoneNumber(String phoneNumber) async {
+    try {
+      // Validate format
+      if (!phoneService.isValidPhoneNumber(phoneNumber)) {
+        logger.error('❌ Invalid phone number format: $phoneNumber');
+        return false;
+      }
+      
+      // Format to E.164
+      final formatted = phoneService.formatPhoneNumber(phoneNumber);
+      
+      // Save to preferences
+      final saved = await phoneService.savePhoneNumber(formatted);
+      if (saved) {
+        _phoneNumber = formatted;
+        logger.success('✅ Phone number updated: $formatted');
+        notifyListeners();
+        
+        // Re-register device with new phone number
+        if (_isConnected) {
+          final device = DeviceInfo(
+            deviceId: _deviceId,
+            pushToken: 'flutter-app-token-$_deviceId',
+            phoneNumber: _phoneNumber,
+          );
+          await apiService.registerDevice(device);
+          logger.success('✅ Device re-registered with new phone number');
+        }
+        
+        return true;
+      }
+      return false;
+    } catch (e) {
+      logger.error('❌ Error updating phone number: $e');
+      return false;
+    }
   }
 
   /// Clear active incident

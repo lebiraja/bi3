@@ -11,11 +11,12 @@ class AppConfig {
   // For physical device, use your local IP
   // Example: 'http://192.168.1.x:8000'
   
-  // API endpoints
+  // API Endpoints
+  static const String healthEndpoint = '/health';
+  static const String devicesEndpoint = '/v1/devices';  // Fixed: removed duplicate /register
   static const String incidentsEndpoint = '/v1/incidents';
-  static const String devicesEndpoint = '/v1/devices';
   static const String callbackEndpoint = '/v1/mobile/callback';
-  static const String healthEndpoint = '/v1/health';
+  static const String mobileCallbackEndpoint = '/v1/mobile/callback';  // Same as callbackEndpoint
   
   // WebSocket path
   static const String wsPath = '/ws';

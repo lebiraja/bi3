@@ -2,30 +2,34 @@ import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../models/models.dart';
 import 'api_service.dart';
+import 'native_telephony_service.dart';  // NEW
 
 /// Service for making phone calls and tracking call state
 class CallService {
   final ApiService _apiService;
   final String deviceId;
+  final String? phoneNumber;  // NEW
+  final NativeTelephonyService nativeTelephony;  // PUBLIC - for audio mode access
 
   CallService({
     required ApiService apiService,
     required this.deviceId,
-  }) : _apiService = apiService;
+    this.phoneNumber,  // NEW
+  }) : _apiService = apiService,
+       nativeTelephony = NativeTelephonyService() {  // PUBLIC
+    // Listen to call state changes
+    nativeTelephony.onCallStateChanged = (state, number) {
+      print('📞 Call state: $state for $number');
+    };
+  }
 
   /// Make a phone call to the specified number
   Future<bool> makeCall(String phoneNumber) async {
-    final Uri callUri = Uri(scheme: 'tel', path: phoneNumber);
-    
     try {
-      if (await canLaunchUrl(callUri)) {
-        await launchUrl(callUri);
-        return true;
-      }
-      print('Cannot launch call URL');
-      return false;
+      // Use native telephony for automatic calling
+      return await nativeTelephony.makeCall(phoneNumber);
     } catch (e) {
-      print('Call error: $e');
+      print('❌ Call error: $e');
       return false;
     }
   }
@@ -36,10 +40,13 @@ class CallService {
     final callInitiated = await makeCall(action.number);
     
     // For now, we assume call was made (in production, use telephony plugin)
+    // ✅ FIX: Use 'acknowledged' status for calls (backend expects this for answered calls)
+    // Backend checks: result.status == ActionStatus.ACKNOWLEDGED (actions.py:203)
     final callback = MobileCallback(
       actionId: action.actionId,
       deviceId: deviceId,
-      status: callInitiated ? 'sent' : 'failed',
+      phoneNumber: phoneNumber,  // NEW: Include phone number
+      status: callInitiated ? 'acknowledged' : 'failed',  // Changed from 'sent' to 'acknowledged'
       callState: callInitiated ? 'CALL_STATE_OFFHOOK' : 'CALL_STATE_IDLE',
       timestamp: DateTime.now().toUtc().toIso8601String(),
       errorMessage: callInitiated ? null : 'Failed to initiate call',
@@ -62,31 +69,32 @@ class CallService {
   }
 }
 
-/// Service for sending SMS messages
+/// Service for handling SMS messages
 class SmsService {
   final ApiService _apiService;
   final String deviceId;
-
+  final String? phoneNumber;  // NEW
+  final NativeTelephonyService _nativeTelephony;  // NEW
+  
   SmsService({
     required ApiService apiService,
     required this.deviceId,
-  }) : _apiService = apiService;
+    this.phoneNumber,  // NEW
+  }) : _apiService = apiService,
+       _nativeTelephony = NativeTelephonyService() {  // NEW
+    // Listen to SMS sent events
+    _nativeTelephony.onSMSSent = (number, success, error) {
+      print('📧 SMS to $number: ${success ? "sent" : "failed"} ${error ?? ""}');
+    };
+  }
 
-  /// Send SMS to the specified number
+  /// Send SMS using native telephony (automatic, no user interaction)
   Future<bool> sendSms(String phoneNumber, String message) async {
-    // Encode message for URL
-    final encodedMessage = Uri.encodeComponent(message);
-    final Uri smsUri = Uri.parse('sms:$phoneNumber?body=$encodedMessage');
-    
     try {
-      if (await canLaunchUrl(smsUri)) {
-        await launchUrl(smsUri);
-        return true;
-      }
-      print('Cannot launch SMS URL');
-      return false;
+      // Use native telephony for automatic SMS
+      return await _nativeTelephony.sendSMS(phoneNumber, message);
     } catch (e) {
-      print('SMS error: $e');
+      print('❌ SMS error: $e');
       return false;
     }
   }
@@ -97,10 +105,12 @@ class SmsService {
     final smsSent = await sendSms(action.number, action.text);
     
     // Report callback
+    // ✅ CORRECT: SMS uses 'sent' status (different from calls which use 'acknowledged')
     final callback = MobileCallback(
       actionId: action.actionId,
       deviceId: deviceId,
-      status: smsSent ? 'sent' : 'failed',
+      phoneNumber: phoneNumber,  // NEW: Include phone number
+      status: smsSent ? 'sent' : 'failed',  // Correct for SMS
       timestamp: DateTime.now().toUtc().toIso8601String(),
       errorMessage: smsSent ? null : 'Failed to send SMS',
     );

@@ -1,15 +1,29 @@
 """
 FastAPI Routes for Incident Orchestrator Agent.
 Provides REST API endpoints for incident management.
+
+Supports both LangGraph and legacy orchestrator implementations.
 """
 
+import os
 import logging
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Header, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from .orchestrator import IncidentOrchestrator
+# Feature flag for LangGraph
+USE_LANGGRAPH = os.getenv('USE_LANGGRAPH', 'true').lower() == 'true'
+
+if USE_LANGGRAPH:
+    from .langgraph_orchestrator import LangGraphOrchestrator as Orchestrator
+    logger = logging.getLogger(__name__)
+    logger.info("🚀 Using LangGraph orchestrator")
+else:
+    from .orchestrator import IncidentOrchestrator as Orchestrator
+    logger = logging.getLogger(__name__)
+    logger.info("📦 Using legacy orchestrator")
+
 from .models import (
     IncidentCreateRequest,
     IncidentResponse,
@@ -25,31 +39,30 @@ from .models import (
 )
 from .api_spec import get_openapi_spec
 
-logger = logging.getLogger(__name__)
-
 # Create router
 router = APIRouter(prefix="/v1", tags=["Incident Orchestrator"])
 
 # Global orchestrator instance (should be initialized on startup)
-_orchestrator: Optional[IncidentOrchestrator] = None
+_orchestrator: Optional[Orchestrator] = None
 
 
-def get_orchestrator() -> IncidentOrchestrator:
+def get_orchestrator() -> Orchestrator:
     """Dependency to get orchestrator instance."""
     global _orchestrator
     if _orchestrator is None:
-        _orchestrator = IncidentOrchestrator()
+        _orchestrator = Orchestrator()
     return _orchestrator
 
 
-def init_orchestrator(orchestrator: IncidentOrchestrator = None, device_manager=None):
+def init_orchestrator(orchestrator: Orchestrator = None, device_manager=None):
     """Initialize the orchestrator instance."""
     global _orchestrator
     if orchestrator:
         _orchestrator = orchestrator
     else:
-        _orchestrator = IncidentOrchestrator(device_manager=device_manager)
+        _orchestrator = Orchestrator(device_manager=device_manager)
     return _orchestrator
+
 
 
 # ============ Incident Endpoints ============
@@ -64,7 +77,7 @@ def init_orchestrator(orchestrator: IncidentOrchestrator = None, device_manager=
 async def create_incident(
     request: IncidentCreateRequest,
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
-    orchestrator: IncidentOrchestrator = Depends(get_orchestrator)
+    orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """Process incoming VLM incident."""
     try:
@@ -98,7 +111,7 @@ async def create_incident(
 )
 async def get_incident(
     incident_id: str,
-    orchestrator: IncidentOrchestrator = Depends(get_orchestrator)
+    orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """Get incident with enhanced report and audit trail."""
     incident = orchestrator.get_incident(incident_id)
@@ -122,7 +135,7 @@ async def get_incident(
 async def manual_override(
     incident_id: str,
     request: ManualOverrideRequest,
-    orchestrator: IncidentOrchestrator = Depends(get_orchestrator)
+    orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """Apply manual override to incident actions."""
     result = orchestrator.handle_manual_override(
@@ -150,7 +163,7 @@ async def manual_override(
 )
 async def agent_decision(
     request: AgentDecisionRequest,
-    orchestrator: IncidentOrchestrator = Depends(get_orchestrator)
+    orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """Submit operator decision for queued incidents."""
     incident = orchestrator.get_incident(request.incident_id)
@@ -187,7 +200,7 @@ async def agent_decision(
 )
 async def register_device(
     request: DeviceRegisterRequest,
-    orchestrator: IncidentOrchestrator = Depends(get_orchestrator)
+    orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """Register a mobile device for action execution."""
     from datetime import datetime
@@ -216,7 +229,7 @@ async def register_device(
 )
 async def get_device(
     device_id: str,
-    orchestrator: IncidentOrchestrator = Depends(get_orchestrator)
+    orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """Get device info."""
     device = orchestrator.action_executor.registered_devices.get(device_id)
@@ -238,7 +251,7 @@ async def get_device(
 )
 async def mobile_callback(
     request: MobileCallback,
-    orchestrator: IncidentOrchestrator = Depends(get_orchestrator)
+    orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """Handle callback from mobile device after action execution."""
     success = orchestrator.handle_mobile_callback(request)
@@ -274,7 +287,7 @@ async def voip_callback(
 )
 async def generate_report(
     incident_id: str,
-    orchestrator: IncidentOrchestrator = Depends(get_orchestrator)
+    orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """Trigger Gemma enhancement for incident report."""
     incident = orchestrator.get_incident(incident_id)

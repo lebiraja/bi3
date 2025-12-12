@@ -134,34 +134,21 @@ class ApiService {
   }
 
   /// Send action callback to server
-  Future<bool> sendActionCallback({
-    required String actionId,
-    required String deviceId,
-    required String status,
-    String? result,
-    String? errorMessage,
-  }) async {
+  Future<bool> sendActionCallback(MobileCallback callback) async {
     try {
-      logger.debug('📤 Sending action callback: $actionId ($status)');
+      logger.debug('📤 Sending action callback for ${callback.actionId}...');
       final response = await _client.post(
-        Uri.parse('$baseUrl${AppConfig.callbackEndpoint}'),
+        Uri.parse('$baseUrl${AppConfig.mobileCallbackEndpoint}'),
         headers: _headers,
-        body: jsonEncode({
-          'action_id': actionId,
-          'device_id': deviceId,
-          'status': status,
-          'error_message': errorMessage ?? result,
-          'timestamp': DateTime.now().toUtc().toIso8601String(),
-        }),
+        body: jsonEncode(callback.toJson()),
       );
 
       if (response.statusCode == 200) {
-        logger.success('✅ Action callback sent: $actionId');
+        logger.success('✅ Action callback sent successfully');
         return true;
-      } else {
-        logger.error('❌ Action callback failed: ${response.statusCode}');
-        return false;
       }
+      logger.error('❌ Send action callback failed: ${response.statusCode}');
+      return false;
     } catch (e) {
       logger.error('❌ Send action callback error: $e');
       return false;

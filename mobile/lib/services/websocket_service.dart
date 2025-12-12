@@ -13,7 +13,11 @@ class WebSocketService {
   final LoggerService logger;
   StreamSubscription? _subscription;
   Timer? _heartbeatTimer;
+  Timer? _reconnectTimer;
   bool _isConnected = false;
+  bool _shouldReconnect = true;
+  int _reconnectAttempts = 0;
+  String? _lastWsUrl;
 
   // Callbacks
   Function(Incident)? onIncidentReceived;
@@ -32,6 +36,8 @@ class WebSocketService {
   /// Connect to WebSocket server
   Future<bool> connect({String? url}) async {
     final wsUrl = url ?? '${AppConfig.getWsUrl(baseUrl)}/$deviceId';
+    _lastWsUrl = wsUrl;
+    _shouldReconnect = true;
     
     try {
       logger.info('🔌 Connecting to WebSocket: $wsUrl');
@@ -44,15 +50,18 @@ class WebSocketService {
           _isConnected = false;
           onError?.call(error.toString());
           onDisconnected?.call();
+          _attemptReconnect();
         },
         onDone: () {
           logger.warning('⚠️ WebSocket closed');
           _isConnected = false;
           onDisconnected?.call();
+          _attemptReconnect();
         },
       );
 
       _isConnected = true;
+      _reconnectAttempts = 0;
       onConnected?.call();
       
       // Start heartbeat
@@ -71,8 +80,33 @@ class WebSocketService {
     } catch (e) {
       logger.error('❌ WebSocket connect error: $e');
       onError?.call(e.toString());
+      _attemptReconnect();
       return false;
     }
+  }
+  
+  /// Attempt to reconnect with exponential backoff
+  void _attemptReconnect() {
+    if (!_shouldReconnect || _lastWsUrl == null) {
+      return;
+    }
+    
+    // Cancel existing reconnect timer
+    _reconnectTimer?.cancel();
+    
+    // Calculate backoff delay (exponential: 1s, 2s, 4s, 8s, max 30s)
+    final delay = Duration(
+      seconds: (1 << _reconnectAttempts).clamp(1, 30),
+    );
+    
+    _reconnectAttempts++;
+    logger.info('🔄 Reconnecting in ${delay.inSeconds}s (attempt $_reconnectAttempts)...');
+    
+    _reconnectTimer = Timer(delay, () async {
+      if (_shouldReconnect && !_isConnected) {
+        await connect(url: _lastWsUrl);
+      }
+    });
   }
 
   /// Handle incoming WebSocket messages
@@ -173,8 +207,11 @@ class WebSocketService {
   /// Check if connected
   bool get isConnected => _isConnected;
 
-  /// Disconnect from WebSocket
+  /// Disconnect from WebSocket server
   void disconnect() {
+    logger.info('🔌 Disconnecting WebSocket...');
+    _shouldReconnect = false;  // NEW: Disable auto-reconnect
+    _reconnectTimer?.cancel();  // NEW: Cancel reconnect timer
     _heartbeatTimer?.cancel();
     _subscription?.cancel();
     _channel?.sink.close();

@@ -215,6 +215,8 @@ class DeviceInfo(BaseModel):
     """Mobile device registration."""
     device_id: str = Field(..., description="Unique device ID")
     push_token: str = Field(..., description="FCM push token")
+    phone_number: Optional[str] = Field(None, description="Device phone number (E.164 format, e.g., +919876543210)")
+    phone_verified: bool = Field(False, description="Phone number verified")
     capabilities: DeviceCapabilities = Field(
         default_factory=DeviceCapabilities
     )
@@ -227,6 +229,7 @@ class MobileCallback(BaseModel):
     """Callback from mobile device after action execution."""
     action_id: str = Field(..., description="Action ID that was executed")
     device_id: str = Field(..., description="Device ID that executed")
+    phone_number: Optional[str] = Field(None, description="Phone number used for call/SMS")
     status: ActionStatus = Field(..., description="Execution status")
     call_state: Optional[str] = Field(
         None,

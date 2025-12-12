@@ -206,6 +206,7 @@ class Incident {
 class DeviceInfo {
   final String deviceId;
   final String pushToken;
+  final String? phoneNumber;  // NEW: Device phone number
   final bool canMakeCalls;
   final bool canSendSms;
   final bool canReceivePush;
@@ -213,6 +214,7 @@ class DeviceInfo {
   DeviceInfo({
     required this.deviceId,
     required this.pushToken,
+    this.phoneNumber,  // NEW
     this.canMakeCalls = true,
     this.canSendSms = true,
     this.canReceivePush = true,
@@ -221,6 +223,7 @@ class DeviceInfo {
   Map<String, dynamic> toJson() => {
         'device_id': deviceId,
         'push_token': pushToken,
+        'phone_number': phoneNumber,  // NEW
         'capabilities': {
           'calls': canMakeCalls,
           'sms': canSendSms,
@@ -234,6 +237,7 @@ class DeviceInfo {
 class MobileCallback {
   final String actionId;
   final String deviceId;
+  final String? phoneNumber;  // NEW: Phone number used
   final String status;
   final String? callState;
   final int? durationSeconds;
@@ -243,6 +247,7 @@ class MobileCallback {
   MobileCallback({
     required this.actionId,
     required this.deviceId,
+    this.phoneNumber,  // NEW
     required this.status,
     this.callState,
     this.durationSeconds,
@@ -253,6 +258,7 @@ class MobileCallback {
   Map<String, dynamic> toJson() => {
         'action_id': actionId,
         'device_id': deviceId,
+        'phone_number': phoneNumber,  // NEW
         'status': status,
         'call_state': callState,
         'duration_seconds': durationSeconds,

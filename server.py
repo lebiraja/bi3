@@ -495,7 +495,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware for frontend
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Configure for production
@@ -509,6 +509,16 @@ app.include_router(agent_router)
 
 
 # ============ Endpoints ============
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for mobile app."""
+    return {
+        "status": "healthy",
+        "service": "BI3 Smart Traffic Safety API",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
 
 @app.get("/", response_model=HealthResponse)
 async def root():

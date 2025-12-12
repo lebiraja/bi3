@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/agent_service.dart';
 import 'services/logger_service.dart';
+import 'services/native_telephony_service.dart';  // NEW
 import 'screens/home_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Request telephony permissions on app start
+  final telephony = NativeTelephonyService();
+  await telephony.requestPermissions();
+  
   runApp(const IncidentAgentApp());
 }
 

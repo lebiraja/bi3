@@ -49,6 +49,24 @@ class ActionExecutor:
         self.pending_callbacks: Dict[str, asyncio.Future] = {}
         self.device_manager = device_manager  # WebSocket manager from server
     
+    def _create_audit(
+        self,
+        agent_id: str,
+        step: str,
+        outcome: str,
+        action_id: str = None,
+        details: dict = None
+    ) -> AuditEntry:
+        """Create an audit entry."""
+        return AuditEntry(
+            ts=datetime.utcnow().isoformat() + 'Z',
+            actor=agent_id,
+            step=step,
+            outcome=outcome,
+            action_id=action_id,
+            details=details
+        )
+    
     async def execute_action_plan(
         self,
         action_plan: List[ActionPlanItem],
@@ -71,20 +89,16 @@ class ActionExecutor:
                 action.action_id
             ))
             
-            # Execute based on action type
-            if action.type == ActionType.CALL:
-                executed_action, action_audit = await self._execute_call(action, agent_id)
-            elif action.type == ActionType.SMS:
+            # Execute SMS actions only
+            if action.type == ActionType.SMS:
                 executed_action, action_audit = await self._execute_sms(action, agent_id)
-            elif action.type == ActionType.NOTIFY:
-                executed_action, action_audit = await self._execute_notify(action, agent_id)
             else:
-                logger.warning(f"Unknown action type: {action.type}")
+                logger.warning(f"Unsupported action type: {action.type} - skipping")
                 action.status = ActionStatus.FAILED
-                action.last_result = {"error": f"Unknown action type: {action.type}"}
+                action.last_result = {"error": f"Unsupported action type: {action.type}"}
                 executed_action = action
                 action_audit = [self._create_audit(
-                    agent_id, "Unknown action type", "Failed", action.action_id
+                    agent_id, f"Unsupported action type: {action.type}", "Skipped", action.action_id
                 )]
             
             updated_plan.append(executed_action)
@@ -178,45 +192,58 @@ class ActionExecutor:
         callback_future = asyncio.Future()
         self.pending_callbacks[action.action_id] = callback_future
         
-        # Send call command to device (simulated)
+        # Send call command to device
         command_payload = {
             "action_id": action.action_id,
             "command": "INITIATE_CALL",
             "number": action.number,
             "timeout_seconds": timeout,
-            "spoken_message": action.text
+            "spoken_message": action.text or f"Calling {action.target_role}"
         }
         
-        logger.info(f"Sending call command to device {device.device_id}: {command_payload}")
+        # Send via WebSocket if device_manager has send_command method
+        if self.device_manager and hasattr(self.device_manager, 'send_command'):
+            success = await self.device_manager.send_command(device.device_id, command_payload)
+            if not success:
+                logger.error(f"Failed to send call command to device {device.device_id}")
+                return {
+                    "answered": False,
+                    "error": "Failed to send command to device",
+                    "device_id": device.device_id,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "method": "gsm"
+                }
+        else:
+            # Simulated for testing
+            logger.info(f"Simulated: Sending call command to {device.device_id}")
         
-        # Send via WebSocket if available
-        if self.device_manager:
-            await self.device_manager.send_command(device.device_id, command_payload)
-        
-        # In production, this would send via FCM or WebSocket
-        # Simulating the call flow
+        # Wait for callback with timeout
         try:
-            # Wait for mobile/callback with timeout
             result = await asyncio.wait_for(callback_future, timeout=timeout)
+            logger.info(f"Call callback received: {result.status}")
+            
+            # Check if call was answered
+            answered = result.status == ActionStatus.ACKNOWLEDGED
             
             return {
-                "answered": result.status == ActionStatus.ACKNOWLEDGED,
+                "answered": answered,
                 "call_state": result.call_state,
-                "duration_seconds": result.duration_seconds,
+                "duration": result.duration_seconds,
                 "device_id": device.device_id,
                 "timestamp": result.timestamp,
                 "method": "gsm"
             }
         except asyncio.TimeoutError:
+            logger.warning(f"Call timeout after {timeout}s for action {action.action_id}")
             return {
                 "answered": False,
-                "error": "Call timed out waiting for device callback",
+                "error": f"Timeout after {timeout}s",
                 "device_id": device.device_id,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "method": "gsm"
             }
         finally:
-            # Cleanup
+            # Clean up pending callback
             self.pending_callbacks.pop(action.action_id, None)
     
     async def _execute_voip_call(self, action: ActionPlanItem) -> Dict[str, Any]:
@@ -341,19 +368,115 @@ class ActionExecutor:
             "provider": "fcm_simulated"
         }
     
-    def _get_available_device(self, calls_required: bool = False) -> Optional[DeviceInfo]:
+    def _get_available_device(
+        self,
+        calls_required: bool = False,
+        sms_required: bool = False
+    ) -> Optional[DeviceInfo]:
         """Get an available device with required capabilities."""
+        # Use device_manager if available
+        if self.device_manager:
+            # Check if it's the DeviceManager class (from actions.py) with .devices attribute
+            if hasattr(self.device_manager, 'devices'):
+                for device_id, device in self.device_manager.devices.items():
+                    if not device.is_online:
+                        continue
+                    
+                    if calls_required and not device.capabilities.calls:
+                        continue
+                    
+                    if sms_required and not device.capabilities.sms:
+                        continue
+                    
+                    return device
+            # Otherwise it's DeviceConnectionManager (from server.py) with .device_connections
+            # In this case, we need to check registered_devices or create a dummy device
+            elif hasattr(self.device_manager, 'device_connections'):
+                # Check if any device is connected
+                if self.device_manager.device_connections:
+                    # Get first connected device ID
+                    device_id = next(iter(self.device_manager.device_connections.keys()))
+                    # Create a DeviceInfo for this connected device
+                    from .models import DeviceCapabilities
+                    return DeviceInfo(
+                        device_id=device_id,
+                        push_token=f"token-{device_id}",
+                        capabilities=DeviceCapabilities(calls=True, sms=True, push=True),
+                        is_online=True
+                    )
+        
+        # Fallback to registered_devices (legacy)
         for device in self.registered_devices.values():
-            if device.is_online:
-                if calls_required and not device.capabilities.calls:
-                    continue
-                return device
+            if not device.is_online:
+                continue
+            
+            if calls_required and not device.capabilities.calls:
+                continue
+            
+            if sms_required and not device.capabilities.sms:
+                continue
+            
+            return device
+        
         return None
     
     def register_device(self, device: DeviceInfo) -> None:
         """Register a mobile device."""
         self.registered_devices[device.device_id] = device
         logger.info(f"Registered device: {device.device_id}")
+    
+class DeviceManager:
+    """Manages registered mobile devices and their phone numbers."""
+    
+    def __init__(self):
+        self.devices: Dict[str, DeviceInfo] = {}  # device_id -> DeviceInfo
+        self.phone_to_device: Dict[str, str] = {}  # phone_number -> device_id
+        self.websocket_connections: Dict[str, Any] = {}  # device_id -> websocket
+    
+    def register_device(self, device: DeviceInfo):
+        """Register a mobile device with optional phone number."""
+        self.devices[device.device_id] = device
+        
+        # Map phone number to device ID if provided
+        if device.phone_number:
+            self.phone_to_device[device.phone_number] = device.device_id
+            logger.info(
+                f"Registered device {device.device_id} with phone {device.phone_number}"
+            )
+        else:
+            logger.warning(
+                f"Device {device.device_id} registered without phone number"
+            )
+    
+    def get_device(self, device_id: str) -> Optional[DeviceInfo]:
+        """Get device by ID."""
+        return self.devices.get(device_id)
+    
+    def get_device_by_phone(self, phone_number: str) -> Optional[DeviceInfo]:
+        """Get device by phone number."""
+        device_id = self.phone_to_device.get(phone_number)
+        if device_id:
+            return self.devices.get(device_id)
+        return None
+    
+    def verify_phone_number(self, device_id: str, phone_number: str) -> bool:
+        """Verify that phone number matches registered device."""
+        device = self.devices.get(device_id)
+        if not device:
+            logger.warning(f"Device {device_id} not found for phone verification")
+            return False
+        
+        if not device.phone_number:
+            # Device has no phone number registered, skip verification
+            return True
+        
+        matches = device.phone_number == phone_number
+        if not matches:
+            logger.warning(
+                f"Phone number mismatch for device {device_id}: "
+                f"expected {device.phone_number}, got {phone_number}"
+            )
+        return matches
     
     def handle_mobile_callback(self, callback: MobileCallback) -> bool:
         """
