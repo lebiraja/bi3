@@ -16,6 +16,11 @@ class Config:
     
     # OpenRouter API Settings
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    # Support for multiple API keys (comma-separated)
+    OPENROUTER_API_KEYS: list = [
+        key.strip() for key in os.getenv("OPENROUTER_API_KEYS", os.getenv("OPENROUTER_API_KEY", "")).split(",")
+        if key.strip()
+    ]
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1/chat/completions"
     VLM_MODEL: str = "qwen/qwen3-vl-8b-instruct"
     
@@ -51,6 +56,20 @@ class Config:
         5: "bus",
         7: "truck"
     }
+    
+    # Streaming Configuration
+    STREAM_BATCH_DURATION: int = 15  # seconds to process per batch
+    STREAM_WAIT_DURATION: int = 5    # seconds to wait between batches
+    STREAM_INIT_DURATION: int = 20   # seconds for initialization
+    STREAM_MAX_CONCURRENT: int = 3   # max concurrent streams
+    STREAM_QUALITY: str = "720p"     # preferred stream quality
+    STREAM_TIMEOUT: int = 30         # stream connection timeout
+    
+    # Stream Optimization Settings
+    STREAM_VLM_INTERVAL: int = 3     # Analyze every N seconds (1=all, 3=every 3rd)
+    STREAM_SKIP_LOW_ACTIVITY: bool = True  # Skip VLM when few vehicles
+    STREAM_MIN_VEHICLES_FOR_VLM: int = 2   # Minimum vehicles to trigger VLM
+    VLM_MAX_CONCURRENT: int = 15     # Increased from 10 for faster processing
     
     @classmethod
     def validate(cls) -> bool:

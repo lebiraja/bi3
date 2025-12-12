@@ -51,20 +51,52 @@ class VLMClient:
             api_key: OpenRouter API key (uses Config if not provided)
             model: Model identifier (uses Config if not provided)
         """
-        self.api_key = api_key or Config.OPENROUTER_API_KEY
+        # Support for multiple API keys (load balancing)
+        self.api_keys = Config.OPENROUTER_API_KEYS if Config.OPENROUTER_API_KEYS else [api_key or Config.OPENROUTER_API_KEY]
+        self.current_key_index = 0
+        self.api_key = self.api_keys[0] if self.api_keys else ""
+        
         self.model = model or Config.VLM_MODEL
         self.base_url = Config.OPENROUTER_BASE_URL
         self.timeout = Config.VLM_REQUEST_TIMEOUT
         
-        self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
+        # Log API key configuration
+        if len(self.api_keys) > 1:
+            logger.info(f"VLM Client initialized with {len(self.api_keys)} API keys for load balancing")
+        
+        # Reusable session for connection pooling (improves parallel performance)
+        self._session: Optional[aiohttp.ClientSession] = None
+    
+    def _get_next_api_key(self) -> str:
+        """
+        Get next API key using round-robin rotation.
+        
+        Returns:
+            API key string
+        """
+        if not self.api_keys:
+            return ""
+        
+        key = self.api_keys[self.current_key_index]
+        self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
+        return key
+    
+    def _get_headers(self, api_key: str) -> dict:
+        """
+        Get request headers for specific API key.
+        
+        Args:
+            api_key: API key to use
+            
+        Returns:
+            Headers dictionary
+        """
+        return {
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "video-analysis-pipeline",
             "X-Title": "Video Behavior Analyzer"
         }
-        
-        # Reusable session for connection pooling (improves parallel performance)
-        self._session: Optional[aiohttp.ClientSession] = None
     
     def _build_image_content(self, base64_images: List[str]) -> List[dict]:
         """
@@ -162,10 +194,20 @@ class VLMClient:
         }
         
         try:
+            # Get next API key for load balancing
+            api_key = self._get_next_api_key()
+            if not api_key:
+                return VLMResponse(
+                    success=False,
+                    error="OpenRouter API key not configured"
+                )
+            
+            headers = self._get_headers(api_key)
+            
             session = await self.get_session()
             async with session.post(
                 self.base_url,
-                headers=self.headers,
+                headers=headers,
                 json=payload
             ) as response:
                     if response.status != 200:

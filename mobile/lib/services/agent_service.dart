@@ -202,10 +202,44 @@ class AgentService extends ChangeNotifier {
     logger.debug('📥 Handling action command: $commandData');
     
     final command = commandData['command'] as String?;
+    final type = commandData['type'] as String?;
     final actionId = commandData['action_id'] as String?;
     
+    // Handle type-based messages (new format from server)
+    if (type == 'sms_action') {
+      final number = commandData['number'] as String?;
+      final text = commandData['text'] as String?;
+      
+      if (number != null && text != null) {
+        logger.info('📱 SMS Action: Sending to $number');
+        logger.info('📝 Message preview: ${text.substring(0, text.length > 50 ? 50 : text.length)}...');
+        
+        final success = await smsService.sendSms(number, text);
+        
+        if (success) {
+          logger.success('✅ SMS sent successfully to $number');
+        } else {
+          logger.error('❌ Failed to send SMS to $number');
+        }
+        
+        // Send callback if action_id exists
+        if (actionId != null) {
+          final callback = MobileCallback(
+            actionId: actionId,
+            deviceId: _deviceId,
+            phoneNumber: _phoneNumber,
+            status: success ? 'sent' : 'failed',
+            timestamp: DateTime.now().toUtc().toIso8601String(),
+          );
+          await apiService.sendActionCallback(callback);
+        }
+      }
+      return;
+    }
+    
+    // Handle command-based messages (legacy format)
     if (command == null) {
-      logger.warning('⚠️ No command specified in action');
+      logger.warning('⚠️ No command or type specified in action');
       return;
     }
 

@@ -153,6 +153,15 @@ class WebSocketService {
           logger.debug('💓 Heartbeat received');
           break;
 
+        case 'sms_action':
+          // SMS action command from server
+          logger.info('📱 Received SMS action command');
+          if (data['number'] != null && data['text'] != null) {
+            // Treat as action command
+            onActionCommandReceived?.call(data);
+          }
+          break;
+
         case 'error':
           final errorMsg = payload?['message'] ?? 'Unknown error';
           logger.error('❌ Server error: $errorMsg');

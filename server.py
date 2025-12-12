@@ -138,6 +138,43 @@ class EnhancedReportResponse(BaseModel):
     error: Optional[str] = None
 
 
+# ============ Streaming Models ============
+
+class StreamStartRequest(BaseModel):
+    """Request to start a stream."""
+    url: str
+    stream_name: Optional[str] = None
+    quality: Optional[str] = "720p"
+
+
+class StreamStartResponse(BaseModel):
+    """Response from stream start."""
+    stream_id: str
+    url: str
+    title: str
+    is_live: bool
+    resolution: str
+    fps: float
+    ws_url: str
+    message: str
+
+
+class StreamStopRequest(BaseModel):
+    """Request to stop a stream."""
+    stream_id: str
+
+
+class StreamStatusResponse(BaseModel):
+    """Stream status response."""
+    stream_id: str
+    state: str
+    created_at: str
+    batch_count: int
+    total_frames: int
+    error: Optional[str] = None
+    stream_info: Optional[dict] = None
+
+
 # ============ WebSocket Manager ============
 
 class ConnectionManager:
@@ -196,6 +233,19 @@ class DeviceConnectionManager:
             logger.warning(f"Device {device_id} not connected")
             return False
     
+    async def broadcast(self, device_id: str, message: dict):
+        """Broadcast message to specific device (alias for send_command for compatibility)."""
+        if device_id in self.device_connections:
+            try:
+                await self.device_connections[device_id].send_json(message)
+                logger.info(f"📤 Message broadcast to device {device_id}: {message.get('type')}")
+            except Exception as e:
+                logger.error(f"Failed to broadcast to device {device_id}: {e}")
+                raise
+        else:
+            logger.warning(f"Device {device_id} not connected for broadcast")
+            raise Exception(f"Device {device_id} not connected")
+    
     def is_connected(self, device_id: str) -> bool:
         """Check if device is connected."""
         return device_id in self.device_connections
@@ -213,6 +263,19 @@ class AnalysisEngine:
     def __init__(self):
         self.mongodb: Optional[MongoDBHandler] = None
         self._init_mongodb()
+        
+        # Initialize streaming components
+        from stream_processor import StreamManager
+        from stream_analyzer import StreamAnalyzer
+        from config import Config
+        
+        self.stream_manager = StreamManager(max_concurrent=Config.STREAM_MAX_CONCURRENT)
+        self.stream_analyzer = StreamAnalyzer(
+            stream_manager=self.stream_manager,
+            mongodb=self.mongodb,
+            use_mongodb=True
+        )
+        logger.info("Streaming components initialized")
     
     def _init_mongodb(self):
         """Try to connect to MongoDB."""
@@ -432,9 +495,78 @@ class AnalysisEngine:
                 # Add to job result
                 analysis_jobs[job_id]["enhanced_report"] = enhanced_report.to_dict()
                 
-                await report_generator.close()
-                
                 logger.info(f"Enhanced report generated in {enhanced_report.generation_time_ms}ms")
+                logger.info(f"Risk scores - Max: {summary.max_risk_score}, Avg: {summary.avg_risk_score}, Critical obs: {len(summary.critical_observations)}")
+                
+                # Trigger incident orchestrator for SMS notifications
+                # Lowered threshold to 5 to catch more incidents
+                if enhanced_report.success and (summary.max_risk_score >= 5 or len(summary.critical_observations) > 0):
+                    try:
+                        logger.info(f"Triggering SMS notification - Risk score: {summary.max_risk_score}, Critical observations: {len(summary.critical_observations)}")
+                        from agent.routes import get_orchestrator
+                        from agent.models import IncidentCreateRequest, VLMSummary, EnhancedReportData, Location
+                        
+                        orchestrator = get_orchestrator()
+                        
+                        # Create VLM summary from analysis
+                        vlm_summary = VLMSummary(
+                            confidence=min(summary.max_risk_score / 10.0, 1.0),
+                            incident_type="Traffic Safety Violation",
+                            description=f"Detected {len(summary.critical_observations)} critical observations with max risk score {summary.max_risk_score}",
+                            vehicles_involved=len(set(obs.vehicle_id if hasattr(obs, 'vehicle_id') else 'unknown' for obs in summary.critical_observations)),
+                            recommended_alerts=["sms"],
+                            ambiguous=False,
+                            raw_analysis=summary.to_dict()
+                        )
+                        
+                        # Create enhanced report data
+                        enhanced_report_data = EnhancedReportData(
+                            report_text=enhanced_report.content,
+                            risk_score=min(10, max(1, int(summary.max_risk_score))),
+                            executive_summary=enhanced_report.executive_summary or enhanced_report.content[:200],
+                            evidence_mapping={
+                                "critical_observations": [
+                                    {
+                                        "behavior_type": obs.behavior_type if hasattr(obs, 'behavior_type') else 'unknown',
+                                        "vehicle_id": obs.vehicle_id if hasattr(obs, 'vehicle_id') else 'unknown',
+                                        "risk_level": obs.risk_level if hasattr(obs, 'risk_level') else 'unknown',
+                                        "description": obs.description if hasattr(obs, 'description') else ''
+                                    }
+                                    for obs in summary.critical_observations
+                                ]
+                            }
+                        )
+                        
+                        # Create location (optional, can be None)
+                        location = None  # Could extract from video metadata if available
+                        
+                        # Create incident data for orchestrator
+                        import uuid
+                        incident_data = {
+                            'incident_id': str(uuid.uuid4()),
+                            'vlm_summary': vlm_summary.dict(),
+                            'enhanced_report': enhanced_report_data.dict(),
+                            'location': location,
+                            'history': []
+                        }
+                        
+                        # Create incident (this will trigger SMS via orchestrator)
+                        incident_result = await orchestrator.process_incident_async(incident_data)
+                        incident_id = incident_result.get('action_result', {}).get('incident_id', 'unknown')
+                        logger.info(f"✅ Incident created: {incident_id} - SMS notifications triggered")
+                        
+                        # Store incident ID in job
+                        analysis_jobs[job_id]["incident_id"] = incident_id
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Failed to create incident for SMS notification: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+                        # Don't fail the job if incident creation fails
+                else:
+                    logger.info(f"Skipping SMS notification - Risk score {summary.max_risk_score} below threshold (5) and no critical observations")
+                
+                await report_generator.close()
                 
             except Exception as e:
                 logger.warning(f"Enhanced report generation failed: {e}")
@@ -812,6 +944,205 @@ async def get_frame_preview(job_id: str, second: int):
         }
     except Exception as e:
         raise HTTPException(500, f"Failed to get frame: {e}")
+
+
+# ============ Streaming Endpoints ============
+
+@app.post("/api/stream/start", response_model=StreamStartResponse)
+async def start_stream(request: StreamStartRequest):
+    """
+    Start processing a live stream or YouTube video.
+    
+    Begins 20-second initialization, then continuous 15s+5s batch processing.
+    """
+    import base64
+    import cv2
+    
+    # Generate stream ID
+    stream_id = f"stream_{str(uuid.uuid4())[:8]}"
+    
+    # Event callback for WebSocket broadcasting
+    async def event_callback(event: dict):
+        event_type = event.get('type')
+        
+        # Handle frame events - draw YOLO detections on base64 frame
+        if event_type == 'yolo_detection' and 'frame_base64' in event:
+            # Decode base64 to image
+            import base64
+            import numpy as np
+            frame_b64 = event['frame_base64']
+            frame_bytes = base64.b64decode(frame_b64)
+            nparr = np.frombuffer(frame_bytes, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            # Draw YOLO detections on frame
+            from video_processor import VideoProcessor
+            processor = VideoProcessor.__new__(VideoProcessor)
+            processor.COLORS = VideoProcessor.COLORS
+            annotated_frame = processor._draw_detections(frame, event['detections'])
+            
+            # Re-encode to base64
+            _, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            frame_b64_annotated = base64.b64encode(buffer).decode('utf-8')
+            
+            # Replace with annotated frame
+            event['frame'] = frame_b64_annotated
+            del event['frame_base64']  # Remove original
+        
+        # Broadcast to WebSocket connections (after encoding)
+        await manager.broadcast(stream_id, event)
+    
+    try:
+        # Start stream analysis
+        result = await engine.stream_analyzer.start_analysis(
+            stream_id=stream_id,
+            url=request.url,
+            quality=request.quality or "720p",
+            event_callback=event_callback
+        )
+        
+        return StreamStartResponse(
+            stream_id=result['stream_id'],
+            url=result['url'],
+            title=result['title'],
+            is_live=result['is_live'],
+            resolution=result['resolution'],
+            fps=result['fps'],
+            ws_url=f"/ws/stream/{stream_id}",
+            message="Stream started. Connect to WebSocket for real-time updates."
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to start stream: {e}")
+        raise HTTPException(500, f"Failed to start stream: {str(e)}")
+
+
+@app.post("/api/stream/stop")
+async def stop_stream(request: StreamStopRequest):
+    """Stop a running stream."""
+    try:
+        result = await engine.stream_analyzer.stop_analysis(request.stream_id)
+        return {
+            "stream_id": request.stream_id,
+            "message": "Stream stopped",
+            "final_stats": result
+        }
+    except Exception as e:
+        logger.error(f"Failed to stop stream: {e}")
+        raise HTTPException(500, f"Failed to stop stream: {str(e)}")
+
+
+@app.get("/api/stream/status/{stream_id}", response_model=StreamStatusResponse)
+async def get_stream_status(stream_id: str):
+    """Get current stream status."""
+    status = engine.stream_manager.get_status(stream_id)
+    
+    if not status:
+        raise HTTPException(404, f"Stream not found: {stream_id}")
+    
+    return StreamStatusResponse(**status)
+
+
+@app.get("/api/stream/live-yolo/{stream_id}")
+async def get_live_yolo_frame(stream_id: str):
+    """
+    Get latest YOLO-annotated frame from stream.
+    
+    Returns base64-encoded JPEG image.
+    """
+    # This will be populated by the event_callback during stream processing
+    # For now, return a placeholder response
+    return {
+        "stream_id": stream_id,
+        "message": "Subscribe to WebSocket for real-time YOLO frames",
+        "ws_url": f"/ws/stream/{stream_id}"
+    }
+
+
+@app.get("/api/stream/live-vlm/{stream_id}")
+async def get_live_vlm_summary(stream_id: str):
+    """
+    Get latest VLM behavioral summary from stream.
+    """
+    # Check if stream exists
+    status = engine.stream_manager.get_status(stream_id)
+    if not status:
+        raise HTTPException(404, f"Stream not found: {stream_id}")
+    
+    # Try to get latest batch from MongoDB
+    if engine.mongodb:
+        try:
+            latest_batch = engine.mongodb.db['stream_batches'].find_one(
+                {'stream_id': stream_id},
+                sort=[('batch_index', -1)]
+            )
+            
+            if latest_batch:
+                return {
+                    "stream_id": stream_id,
+                    "batch_index": latest_batch['batch_index'],
+                    "vlm_analyses": latest_batch['vlm_analyses'],
+                    "avg_risk_score": latest_batch['avg_risk_score'],
+                    "timestamp": latest_batch['timestamp'].isoformat() + 'Z'
+                }
+        except Exception as e:
+            logger.error(f"Failed to fetch VLM summary: {e}")
+    
+    return {
+        "stream_id": stream_id,
+        "message": "No VLM summaries available yet. Subscribe to WebSocket for real-time updates.",
+        "ws_url": f"/ws/stream/{stream_id}"
+    }
+
+
+@app.get("/api/stream/live-reports/{stream_id}")
+async def get_live_reports(stream_id: str):
+    """
+    Get all enhanced reports generated during streaming.
+    """
+    # Check if stream exists
+    status = engine.stream_manager.get_status(stream_id)
+    if not status:
+        raise HTTPException(404, f"Stream not found: {stream_id}")
+    
+    # Get all batches with reports
+    if engine.mongodb:
+        try:
+            batches = list(engine.mongodb.db['stream_batches'].find(
+                {'stream_id': stream_id, 'enhanced_reports': {'$ne': []}},
+                sort=[('batch_index', 1)]
+            ))
+            
+            all_reports = []
+            for batch in batches:
+                for report in batch.get('enhanced_reports', []):
+                    report['batch_index'] = batch['batch_index']
+                    all_reports.append(report)
+            
+            return {
+                "stream_id": stream_id,
+                "total_reports": len(all_reports),
+                "reports": all_reports
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch reports: {e}")
+    
+    return {
+        "stream_id": stream_id,
+        "total_reports": 0,
+        "reports": [],
+        "message": "Subscribe to WebSocket for real-time report notifications."
+    }
+
+
+@app.get("/api/stream/list")
+async def list_streams():
+    """List all active streams."""
+    streams = engine.stream_manager.list_streams()
+    return {
+        "total": len(streams),
+        "streams": streams
+    }
 
 
 # ============ WebSocket Endpoint ============

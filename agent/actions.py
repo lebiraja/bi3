@@ -311,10 +311,45 @@ class ActionExecutor:
         return action, audit
     
     async def _send_sms(self, number: str, text: str) -> Dict[str, Any]:
-        """Send SMS message."""
-        # Simulated - in production would use SMS gateway
+        """Send SMS message via mobile device or simulated."""
         import uuid
         
+        # Check for available device with SMS capability
+        device = self._get_available_device(sms_required=True)
+        
+        if device and self.device_manager:
+            # Send SMS via mobile device
+            logger.info(f"Sending SMS via device {device.device_id} to {number}")
+            
+            # Create SMS command payload
+            sms_payload = {
+                "type": "sms_action",
+                "number": number,
+                "text": text,
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+            
+            # Send via WebSocket if device_manager has broadcast method
+            if hasattr(self.device_manager, 'broadcast'):
+                try:
+                    await self.device_manager.broadcast(device.device_id, sms_payload)
+                    logger.info(f"✅ SMS command sent to device {device.device_id}")
+                    
+                    return {
+                        "sent": True,
+                        "message_id": str(uuid.uuid4())[:8],
+                        "number": number,
+                        "text_length": len(text),
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "provider": f"mobile_device_{device.device_id}",
+                        "device_id": device.device_id
+                    }
+                except Exception as e:
+                    logger.error(f"Failed to send SMS via device: {e}")
+                    # Fall through to simulation
+        
+        # Fallback to simulated SMS
+        logger.warning("No device available, using simulated SMS")
         return {
             "sent": True,
             "message_id": str(uuid.uuid4())[:8],

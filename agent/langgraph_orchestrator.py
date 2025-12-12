@@ -27,6 +27,7 @@ from .models import (
     AuditEntry,
     DeviceInfo,
     MobileCallback,
+    RetryPolicy,  # Added missing import
 )
 from .actions import ActionExecutor
 from .api_spec import get_openapi_spec
@@ -342,7 +343,6 @@ Location: {location}
                 target_role="police",
                 number="+919535879330",  # Police number
                 text=generate_sms_report("police"),
-                priority=1,
                 retry_policy=RetryPolicy(attempts=3, backoff_seconds=5)
             ))
         
@@ -354,7 +354,6 @@ Location: {location}
                 target_role="ambulance",
                 number="+916369445764",  # Ambulance number
                 text=generate_sms_report("ambulance"),
-                priority=1,
                 retry_policy=RetryPolicy(attempts=3, backoff_seconds=5)
             ))
         
@@ -365,7 +364,6 @@ Location: {location}
             target_role="traffic_control",
             number="+919535879330",  # Traffic control (using police number for now)
             text=generate_sms_report("traffic"),
-            priority=2,
             retry_policy=RetryPolicy(attempts=2, backoff_seconds=10)
         ))
     
@@ -377,15 +375,17 @@ Location: {location}
             target_role="traffic_control",
             number="+919535879330",
             text=generate_sms_report("traffic"),
-            priority=3,
             retry_policy=RetryPolicy(attempts=2, backoff_seconds=10)
         ))
     
     logger.info(f"Created action plan with {len(actions)} SMS actions")
     
+    # Convert ActionPlanItem objects to dicts for state storage
+    action_dicts = [action.dict() for action in actions]
+    
     return {
         **state,
-        "action_plan": actions,
+        "action_plan": action_dicts,
         "status": "action_plan_created"
     }
 
