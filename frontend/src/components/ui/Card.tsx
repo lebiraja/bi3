@@ -20,16 +20,24 @@ export const Card = ({
   return (
     <motion.div
       className={clsx(
-        'rounded-2xl p-6',
-        variant === 'default' && 'bg-slate-800/50 border border-slate-700/50',
-        variant === 'gradient' && 'bg-gradient-to-br from-slate-800/80 to-slate-900/80 border border-slate-600/30',
-        hover && 'transition-all duration-200 hover:scale-[1.02] hover:shadow-xl hover:shadow-black/20',
+        'p-6 backdrop-blur-[var(--liquid-blur)] border transition-all duration-[var(--transition-normal)]',
+        variant === 'default' && 'bg-[var(--liquid-bg)] border-[var(--liquid-border)]',
+        variant === 'gradient' && 'bg-gradient-to-br from-white/80 via-blue-50/80 to-indigo-50/80 dark:from-slate-800/80 dark:via-blue-900/20 dark:to-indigo-900/20 border-[var(--liquid-border)]',
+        hover && 'hover:-translate-y-2 hover:border-[var(--accent-primary)]/20',
         glow && 'animate-pulse-glow',
         className
       )}
+      style={{
+        borderRadius: 'var(--radius-xl)',
+        boxShadow: 'var(--shadow-md)'
+      }}
+      whileHover={hover ? {
+        boxShadow: 'var(--shadow-xl)',
+        scale: 1.01
+      } : undefined}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
+      transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
     >
       {children}
     </motion.div>
@@ -55,20 +63,28 @@ export const StatCard = ({
   variant = 'blue',
 }: StatCardProps) => {
   const iconBgClasses = {
-    blue: 'bg-blue-500/20 text-blue-400',
-    green: 'bg-green-500/20 text-green-400',
-    yellow: 'bg-yellow-500/20 text-yellow-400',
-    red: 'bg-red-500/20 text-red-400',
-    purple: 'bg-purple-500/20 text-purple-400',
+    blue: 'bg-gradient-to-br from-blue-100 to-blue-200 text-blue-700 shadow-md shadow-blue-200',
+    green: 'bg-gradient-to-br from-green-100 to-green-200 text-green-700 shadow-md shadow-green-200',
+    yellow: 'bg-gradient-to-br from-amber-100 to-amber-200 text-amber-700 shadow-md shadow-amber-200',
+    red: 'bg-gradient-to-br from-red-100 to-red-200 text-red-700 shadow-md shadow-red-200',
+    purple: 'bg-gradient-to-br from-purple-100 to-purple-200 text-purple-700 shadow-md shadow-purple-200',
+  };
+
+  const borderClasses = {
+    blue: 'border-blue-100',
+    green: 'border-green-100',
+    yellow: 'border-amber-100',
+    red: 'border-red-100',
+    purple: 'border-purple-100',
   };
 
   return (
-    <Card hover className="relative overflow-hidden">
+    <Card hover className={clsx('relative overflow-hidden border-l-4', borderClasses[variant])}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-slate-400 text-sm font-medium mb-1">{title}</p>
+          <p className="text-gray-600 text-sm font-medium mb-1">{title}</p>
           <motion.p
-            className="text-3xl font-bold text-white"
+            className="text-3xl font-bold text-gray-900"
             initial={{ scale: 0.5, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, type: 'spring', stiffness: 200 }}
@@ -78,13 +94,13 @@ export const StatCard = ({
           {trend && (
             <p
               className={clsx(
-                'text-sm mt-2 flex items-center gap-1',
-                trend.isPositive ? 'text-green-400' : 'text-red-400'
+                'text-sm mt-2 flex items-center gap-1 font-medium',
+                trend.isPositive ? 'text-green-600' : 'text-red-600'
               )}
             >
               <span>{trend.isPositive ? '↑' : '↓'}</span>
               <span>{Math.abs(trend.value)}%</span>
-              <span className="text-slate-500">vs last week</span>
+              <span className="text-gray-400">vs last week</span>
             </p>
           )}
         </div>
@@ -95,12 +111,12 @@ export const StatCard = ({
       {/* Decorative gradient */}
       <div
         className={clsx(
-          'absolute -bottom-10 -right-10 w-32 h-32 rounded-full blur-3xl opacity-20',
-          variant === 'blue' && 'bg-blue-500',
-          variant === 'green' && 'bg-green-500',
-          variant === 'yellow' && 'bg-yellow-500',
-          variant === 'red' && 'bg-red-500',
-          variant === 'purple' && 'bg-purple-500'
+          'absolute -bottom-10 -right-10 w-32 h-32 rounded-full blur-3xl opacity-10',
+          variant === 'blue' && 'bg-blue-400',
+          variant === 'green' && 'bg-green-400',
+          variant === 'yellow' && 'bg-amber-400',
+          variant === 'red' && 'bg-red-400',
+          variant === 'purple' && 'bg-purple-400'
         )}
       />
     </Card>

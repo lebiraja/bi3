@@ -16,28 +16,28 @@ export const StatusBadge = ({
 }: StatusBadgeProps) => {
   const config = {
     pending: {
-      bg: 'bg-slate-500/20',
-      text: 'text-slate-400',
+      bg: 'bg-gradient-to-r from-slate-100 to-gray-100',
+      text: 'text-gray-700',
       label: 'Pending',
-      dot: 'bg-slate-400',
+      dot: 'bg-gray-500',
     },
     processing: {
-      bg: 'bg-blue-500/20',
-      text: 'text-blue-400',
+      bg: 'bg-gradient-to-r from-blue-100 to-indigo-100',
+      text: 'text-blue-800',
       label: 'Processing',
-      dot: 'bg-blue-400',
+      dot: 'bg-blue-600',
     },
     completed: {
-      bg: 'bg-green-500/20',
-      text: 'text-green-400',
+      bg: 'bg-gradient-to-r from-green-100 to-emerald-100',
+      text: 'text-green-800',
       label: 'Completed',
-      dot: 'bg-green-400',
+      dot: 'bg-green-600',
     },
     failed: {
-      bg: 'bg-red-500/20',
-      text: 'text-red-400',
+      bg: 'bg-gradient-to-r from-red-100 to-rose-100',
+      text: 'text-red-800',
       label: 'Failed',
-      dot: 'bg-red-400',
+      dot: 'bg-red-600',
     },
   };
 
@@ -101,33 +101,33 @@ export const RiskBadge = ({
 }: RiskBadgeProps) => {
   const config: Record<string, { bg: string; text: string; border: string; label: string }> = {
     low: {
-      bg: 'bg-green-500/20',
-      text: 'text-green-400',
-      border: 'border-green-500/30',
+      bg: 'bg-gradient-to-r from-green-100 to-emerald-100',
+      text: 'text-green-800',
+      border: 'border-green-300',
       label: 'Low Risk',
     },
     medium: {
-      bg: 'bg-yellow-500/20',
-      text: 'text-yellow-400',
-      border: 'border-yellow-500/30',
+      bg: 'bg-gradient-to-r from-amber-100 to-yellow-100',
+      text: 'text-amber-800',
+      border: 'border-amber-300',
       label: 'Medium Risk',
     },
     warning: {
-      bg: 'bg-orange-500/20',
-      text: 'text-orange-400',
-      border: 'border-orange-500/30',
+      bg: 'bg-gradient-to-r from-orange-100 to-amber-100',
+      text: 'text-orange-800',
+      border: 'border-orange-300',
       label: 'Warning',
     },
     high: {
-      bg: 'bg-orange-500/20',
-      text: 'text-orange-400',
-      border: 'border-orange-500/30',
+      bg: 'bg-gradient-to-r from-orange-100 to-red-100',
+      text: 'text-orange-800',
+      border: 'border-orange-300',
       label: 'High Risk',
     },
     critical: {
-      bg: 'bg-red-500/20',
-      text: 'text-red-400',
-      border: 'border-red-500/30',
+      bg: 'bg-gradient-to-r from-red-100 to-rose-100',
+      text: 'text-red-800',
+      border: 'border-red-300',
       label: 'Critical',
     },
   };
@@ -140,9 +140,9 @@ export const RiskBadge = ({
 
   // Fallback for unknown levels
   const riskConfig = config[level?.toLowerCase()] || {
-    bg: 'bg-slate-500/20',
-    text: 'text-slate-400',
-    border: 'border-slate-500/30',
+    bg: 'bg-gray-100',
+    text: 'text-gray-600',
+    border: 'border-gray-200',
     label: level || 'Unknown',
   };
 

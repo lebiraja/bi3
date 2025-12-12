@@ -27,31 +27,31 @@ export const ProgressBar = ({
   };
 
   const gradientClasses = {
-    primary: 'from-blue-500 to-purple-500',
-    success: 'from-green-500 to-emerald-500',
-    warning: 'from-yellow-500 to-orange-500',
-    danger: 'from-red-500 to-rose-500',
+    primary: 'from-blue-600 via-indigo-500 to-purple-600',
+    success: 'from-green-500 via-emerald-500 to-teal-500',
+    warning: 'from-yellow-500 via-amber-500 to-orange-500',
+    danger: 'from-red-500 via-rose-500 to-pink-600',
   };
 
   return (
     <div className="w-full">
       {(showLabel || label) && (
         <div className="flex justify-between items-center mb-2">
-          <span className="text-sm text-slate-400">{label || 'Progress'}</span>
-          <span className="text-sm font-semibold text-white">
+          <span className="text-sm text-gray-600">{label || 'Progress'}</span>
+          <span className="text-sm font-semibold text-gray-900">
             {clampedProgress.toFixed(0)}%
           </span>
         </div>
       )}
       <div
         className={clsx(
-          'w-full bg-slate-700/50 rounded-full overflow-hidden',
+          'w-full bg-gradient-to-r from-gray-100 to-gray-200 rounded-full overflow-hidden shadow-inner',
           sizeClasses[size]
         )}
       >
         <motion.div
           className={clsx(
-            'h-full rounded-full bg-gradient-to-r relative',
+            'h-full rounded-full bg-gradient-to-r relative shadow-sm',
             gradientClasses[variant]
           )}
           initial={{ width: 0 }}
@@ -60,7 +60,7 @@ export const ProgressBar = ({
         >
           {animated && clampedProgress > 0 && clampedProgress < 100 && (
             <motion.div
-              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
               animate={{ x: ['-100%', '200%'] }}
               transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
             />

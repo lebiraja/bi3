@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -11,9 +11,10 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { Header } from '../components/layout';
-import { Card, Button, ProgressBar, CircularProgress, FramePreview } from '../components/ui';
+import { Card, Button, ProgressBar, CircularProgress, FramePreview, StatusIndicator } from '../components/ui';
 import { uploadVideo } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useNotifications } from '../contexts/NotificationContext';
 import type { WSMessage } from '../types/api';
 
 type UploadState = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
@@ -34,9 +35,11 @@ interface UploadInfo {
 
 export const Upload = () => {
   const navigate = useNavigate();
+  const { addNotification, addPageNotification } = useNotifications();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [state, setState] = useState<UploadState>('idle');
+  const hasNotifiedRef = useRef(false);
   const [info, setInfo] = useState<UploadInfo>({
     file: null,
     uploadProgress: 0,
@@ -75,16 +78,26 @@ export const Upload = () => {
           analysisProgress: 100,
           message: 'Analysis completed successfully!',
         }));
+        addNotification('success', 'Analysis Complete', 'Video analysis finished successfully!');
       } else if (message.type === 'error') {
         setState('error');
+        const errorMsg = message.message || 'Analysis failed';
         setInfo((prev) => ({
           ...prev,
-          error: message.message || 'Analysis failed',
+          error: errorMsg,
         }));
+        addNotification('error', 'Analysis Failed', errorMsg);
       }
     },
     autoReconnect: true,
   });
+
+  useEffect(() => {
+    if (!hasNotifiedRef.current) {
+      addPageNotification('upload', 'info', 'Upload Page Ready', 'Select or drag a video file to begin analysis');
+      hasNotifiedRef.current = true;
+    }
+  }, [addPageNotification]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -108,10 +121,12 @@ export const Upload = () => {
   const handleFileSelect = (file: File) => {
     const validTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/x-matroska'];
     if (!validTypes.includes(file.type) && !file.name.match(/\.(mp4|avi|mov|mkv)$/i)) {
+      const errorMsg = 'Invalid file type. Please upload MP4, AVI, MOV, or MKV files.';
       setInfo((prev) => ({
         ...prev,
-        error: 'Invalid file type. Please upload MP4, AVI, MOV, or MKV files.',
+        error: errorMsg,
       }));
+      addNotification('error', 'Invalid File Type', errorMsg);
       return;
     }
 
@@ -143,6 +158,8 @@ export const Upload = () => {
     setState('uploading');
     setInfo((prev) => ({ ...prev, error: null }));
 
+    addNotification('info', 'Upload Started', `Uploading ${info.file.name}...`);
+
     try {
       const response = await uploadVideo(info.file, (progress) => {
         setInfo((prev) => ({ ...prev, uploadProgress: progress }));
@@ -156,12 +173,15 @@ export const Upload = () => {
         message: 'Upload complete. Starting analysis...',
       }));
       setState('processing');
+      addNotification('success', 'Upload Complete', 'Video uploaded successfully. Analysis in progress...');
     } catch (error: any) {
       setState('error');
+      const errorMessage = error.response?.data?.detail || 'Upload failed. Please try again.';
       setInfo((prev) => ({
         ...prev,
-        error: error.response?.data?.detail || 'Upload failed. Please try again.',
+        error: errorMessage,
       }));
+      addNotification('error', 'Upload Failed', errorMessage);
     }
   };
 
@@ -228,19 +248,19 @@ export const Upload = () => {
 
                   <div className="text-center">
                     <motion.div
-                      className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center"
+                      className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-100 to-indigo-200 flex items-center justify-center shadow-lg"
                       animate={dragOver ? { scale: 1.1 } : { scale: 1 }}
                     >
-                      <UploadIcon className="w-10 h-10 text-blue-400" />
+                      <UploadIcon className="w-10 h-10 text-blue-600" />
                     </motion.div>
 
-                    <h3 className="text-xl font-semibold text-white mb-2">
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">
                       Drop your video here
                     </h3>
-                    <p className="text-slate-400 mb-4">
+                    <p className="text-gray-600 mb-4 font-medium">
                       or click to browse from your computer
                     </p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-gray-500">
                       Supported formats: MP4, AVI, MOV, MKV
                     </p>
                   </div>
@@ -251,10 +271,10 @@ export const Upload = () => {
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3"
+                  className="mt-4 p-4 bg-gradient-to-r from-red-50 to-rose-50 border border-red-200 rounded-xl flex items-center gap-3 shadow-sm"
                 >
-                  <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
-                  <p className="text-red-400">{info.error}</p>
+                  <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                  <p className="text-red-700 font-medium">{info.error}</p>
                 </motion.div>
               )}
             </motion.div>
@@ -271,14 +291,14 @@ export const Upload = () => {
               <Card>
                 <div className="flex items-start justify-between mb-6">
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center">
-                      <FileVideo className="w-7 h-7 text-blue-400" />
+                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-200 flex items-center justify-center shadow-md">
+                      <FileVideo className="w-7 h-7 text-blue-700" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-semibold text-white">
+                      <h3 className="text-lg font-semibold text-gray-900">
                         {info.file.name}
                       </h3>
-                      <p className="text-slate-400">
+                      <p className="text-gray-600 font-medium">
                         {formatFileSize(info.file.size)}
                       </p>
                     </div>
@@ -326,16 +346,16 @@ export const Upload = () => {
               <Card>
                 <div className="text-center mb-8">
                   <motion.div
-                    className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center"
+                    className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-100 to-indigo-200 flex items-center justify-center shadow-lg"
                     animate={{ scale: [1, 1.05, 1] }}
                     transition={{ duration: 2, repeat: Infinity }}
                   >
-                    <Loader2 className="w-10 h-10 text-blue-400 animate-spin" />
+                    <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
                   </motion.div>
-                  <h3 className="text-xl font-semibold text-white mb-2">
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">
                     Uploading Video
                   </h3>
-                  <p className="text-slate-400">{info.file?.name}</p>
+                  <p className="text-gray-600 font-medium">{info.file?.name}</p>
                 </div>
 
                 <ProgressBar
@@ -375,22 +395,23 @@ export const Upload = () => {
                     size={160}
                     variant="primary"
                   />
-                  <h3 className="text-xl font-semibold text-white mt-6 mb-2">
+                  <h3 className="text-xl font-semibold text-gray-900 mt-6 mb-2">
                     Analyzing Video
                   </h3>
-                  <p className="text-slate-400 text-center max-w-md">
+                  <p className="text-gray-600 text-center max-w-md font-medium">
                     {info.message || 'Processing frames and detecting behaviors...'}
                   </p>
-                  {isConnected && (
-                    <div className="flex items-center gap-2 mt-4 text-green-400 text-sm">
-                      <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                      Live updates connected
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 mt-4">
+                    <StatusIndicator 
+                      status={isConnected ? 'online' : 'connecting'} 
+                      size="sm" 
+                      label="Live updates"
+                    />
+                  </div>
                 </div>
 
                 {/* Analysis Steps */}
-                <div className="space-y-4 p-4 bg-slate-800/30 rounded-xl">
+                <div className="space-y-4 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 rounded-xl shadow-sm">
                   <div className="flex items-center gap-3">
                     <div
                       className={`w-8 h-8 rounded-full flex items-center justify-center ${info.analysisProgress >= 10
@@ -556,17 +577,17 @@ export const Upload = () => {
               <Card>
                 <div className="text-center mb-8">
                   <motion.div
-                    className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-red-500/20 to-rose-500/20 flex items-center justify-center"
+                    className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-red-100 to-rose-100 flex items-center justify-center shadow-lg"
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', stiffness: 200 }}
                   >
-                    <AlertCircle className="w-10 h-10 text-red-400" />
+                    <AlertCircle className="w-10 h-10 text-red-600" />
                   </motion.div>
-                  <h3 className="text-xl font-semibold text-white mb-2">
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">
                     Analysis Failed
                   </h3>
-                  <p className="text-red-400">{info.error}</p>
+                  <p className="text-red-700 font-medium">{info.error}</p>
                 </div>
 
                 <div className="flex gap-4">
@@ -610,10 +631,10 @@ export const Upload = () => {
           ].map((tip, index) => (
             <div
               key={index}
-              className="p-4 bg-slate-800/30 border border-slate-700/30 rounded-xl"
+              className="p-4 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 border border-blue-200 rounded-xl shadow-sm hover:shadow-md transition-all"
             >
-              <h4 className="font-medium text-white mb-1">{tip.title}</h4>
-              <p className="text-sm text-slate-400">{tip.description}</p>
+              <h4 className="font-semibold text-gray-900 mb-1">{tip.title}</h4>
+              <p className="text-sm text-gray-600">{tip.description}</p>
             </div>
           ))}
         </motion.div>
