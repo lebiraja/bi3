@@ -112,12 +112,15 @@ export const LiveStream = () => {
                         break;
 
                     case 'yolo_video_frame':
-                        if (data.frame) {
-                            setCurrentFrame(data.frame);
+                        // Handle frame_base64 from backend
+                        const frameData = data.frame_base64 || data.frame;
+                        if (frameData) {
+                            setCurrentFrame(frameData);
+                            setStreamInfo(prev => ({ ...prev, state: 'active' }));
                             setStats(prev => ({
                                 ...prev,
                                 frameCount: data.frame_number || prev.frameCount,
-                                vehicleCount: data.detection_count || prev.vehicleCount,
+                                vehicleCount: data.vehicle_count || prev.vehicleCount,
                             }));
                         }
                         break;
