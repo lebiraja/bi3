@@ -25,8 +25,8 @@ class Config:
 
     # YOLO Settings
     YOLO_MODEL_PATH: str = "yolo11n.pt"
-    YOLO_CONFIDENCE: float = 0.3
-    YOLO_IOU: float = 0.5
+    YOLO_CONFIDENCE: float = 0.25  # Lower for better detection in busy scenes
+    YOLO_IOU: float = 0.45  # Slightly lower for overlapping vehicles
     VEHICLE_CLASSES: list = [2, 3, 5, 7]  # car, motorcycle, bus, truck
 
     # Class name mapping (COCO dataset)

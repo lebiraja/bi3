@@ -172,8 +172,8 @@ class OllamaVisionClient:
         self,
         base64_frames: List[str],
         yolo_context: Dict[str, Any],
-        temperature: float = 0.3,
-        max_tokens: int = 2000
+        temperature: float = 0.2,
+        max_tokens: int = 500  # Reduced for faster inference
     ) -> VisionAnalysisResult:
         """
         Analyze video frames with vision model.

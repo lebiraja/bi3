@@ -193,14 +193,14 @@ class VLMSampler:
             current_timestamp_ms: Current timestamp in milliseconds
 
         Returns:
-            VLMContext with 3 frames and YOLO data, or None if insufficient data
+            VLMContext with 1 frame and YOLO data, or None if insufficient data
         """
         if len(self.detection_buffer) < 60:  # Need at least 2 seconds of history
             logger.warning("Insufficient buffer for context frames")
             return None
 
-        # Find frames at approximate timestamps
-        target_offsets = [-2000, -1000, 0]  # -2s, -1s, now (in ms)
+        # Use only current frame for faster VLM inference (was: 3 frames)
+        target_offsets = [0]  # Only current frame
         frames = []
 
         for offset in target_offsets:
@@ -211,8 +211,16 @@ class VLMSampler:
                 logger.warning(f"Could not find frame for offset {offset}ms")
                 return None
 
-            # Encode frame to base64
-            _, buffer = cv2.imencode('.jpg', closest['frame'], [cv2.IMWRITE_JPEG_QUALITY, 85])
+            # Resize frame for faster VLM inference (720p -> 480p)
+            frame = closest['frame']
+            h, w = frame.shape[:2]
+            if h > 480:
+                scale = 480 / h
+                new_w = int(w * scale)
+                frame = cv2.resize(frame, (new_w, 480), interpolation=cv2.INTER_AREA)
+
+            # Encode frame to base64 with lower quality for speed
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             base64_encoded = base64.b64encode(buffer).decode('utf-8')
 
             sampled = SampledFrame(

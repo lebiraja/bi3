@@ -449,20 +449,29 @@ class StreamAnalyzer:
     ):
         """Generate enhanced report asynchronously."""
         try:
-            report = await self.report_generator.generate_enhanced_report(
-                video_id=stream_id,
-                analysis_summary={
-                    'critical_observations': [
-                        {
-                            'behavior_type': obs.behavior_type,
-                            'risk_level': obs.risk_level,
-                            'description': obs.description
-                        }
-                        for obs in analysis.observations
-                    ],
+            # Build VLM analysis dict for report generator
+            vlm_analysis = {
+                'observations': [
+                    {
+                        'behavior_type': obs.behavior_type,
+                        'risk_level': obs.risk_level,
+                        'description': obs.description,
+                        'confidence': obs.confidence,
+                        'evidence': obs.evidence
+                    }
+                    for obs in analysis.observations
+                ],
+                'overall_assessment': {
                     'risk_score': analysis.risk_score,
-                    'timestamp': analysis.timestamp_ms,
-                }
+                    'summary': analysis.summary,
+                    'recommended_alerts': analysis.recommended_alerts
+                },
+                'timestamp_ms': analysis.timestamp_ms
+            }
+
+            report = await self.report_generator.generate_enhanced_report(
+                vlm_analysis=vlm_analysis,
+                video_metadata={'stream_id': stream_id, 'type': 'live_stream'}
             )
 
             if event_callback:
