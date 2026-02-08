@@ -352,7 +352,7 @@ class RealTimeStreamAnalyzer:
 
             extractor = state.get('extractor')
             if extractor:
-                extractor.stop()
+                extractor.stop_stream()
 
             del self.active_streams[stream_id]
 
