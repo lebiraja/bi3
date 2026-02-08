@@ -248,7 +248,7 @@ class StreamExtractor:
     def get_next_frame(self) -> Optional[tuple]:
         """
         Get next frame from buffer.
-        
+
         Returns:
             Tuple of (frame_number, frame) or None if no frame available
         """
@@ -258,6 +258,26 @@ class StreamExtractor:
             if not self.is_running:
                 return None
             logger.warning("Frame buffer empty, waiting for frames...")
+            return None
+
+    def get_frame(self) -> Optional[tuple]:
+        """
+        Get next frame from buffer with timestamp.
+        Non-blocking version for continuous processing.
+
+        Returns:
+            Tuple of (frame_number, frame, timestamp_ms) or None if no frame available
+        """
+        try:
+            frame_data = self.frame_buffer.get_nowait()
+            if frame_data:
+                frame_number, frame = frame_data
+                # Calculate timestamp based on frame number and fps
+                fps = self.stream_info.fps if self.stream_info else 30
+                timestamp_ms = (frame_number / fps) * 1000
+                return (frame_number, frame, timestamp_ms)
+            return None
+        except queue.Empty:
             return None
     
     def get_batch_frames(self, duration: int = 15, target_fps: int = 3) -> List[tuple]:

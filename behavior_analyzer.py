@@ -11,7 +11,7 @@ from datetime import datetime
 
 from config import Config
 from frame_sampler import FrameData
-from vlm_client import VLMClient, VLMResponse
+from ollama_vision_client import OllamaVisionClient, VisionAnalysisResult
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ class BehaviorAnalyzer:
     integrates YOLO detection data, and aggregates results.
     """
     
-    def __init__(self, vlm_client: VLMClient = None, is_stream: bool = False):
+    def __init__(self, vlm_client: OllamaVisionClient = None, is_stream: bool = False):
         """
         Initialize behavior analyzer.
         
@@ -127,15 +127,13 @@ class BehaviorAnalyzer:
         """
         if vlm_client:
             self.vlm_client = vlm_client
-        elif is_stream:
-            # For live streams, use per-key concurrency limits to reduce latency
-            from config import Config
-            self.vlm_client = VLMClient(max_concurrent_per_key=Config.STREAM_VLM_MAX_PER_KEY)
-            logger.info(f"BehaviorAnalyzer initialized for LIVE STREAM with {Config.STREAM_VLM_MAX_PER_KEY} requests per API key")
         else:
-            # For video uploads, use default (no per-key limits)
-            self.vlm_client = VLMClient()
-            logger.info("BehaviorAnalyzer initialized for VIDEO UPLOAD (no per-key limits)")
+            # Use local Ollama VLM client
+            from config import Config
+            self.vlm_client = OllamaVisionClient(
+                max_concurrent=Config.VLM_MAX_CONCURRENT
+            )
+            logger.info(f"BehaviorAnalyzer initialized with OllamaVisionClient (max_concurrent={Config.VLM_MAX_CONCURRENT})")
     
     def _prepare_yolo_data(
         self,
