@@ -953,47 +953,22 @@ async def start_stream(request: StreamStartRequest):
     """
     Start processing a live stream or YouTube video.
     
-    Begins 20-second initialization, then continuous 15s+5s batch processing.
+    Uses continuous real-time processing with YOLO at 30fps and VLM every 3 seconds.
     """
-    import base64
-    import cv2
-    
     # Generate stream ID
     stream_id = f"stream_{str(uuid.uuid4())[:8]}"
     
     # Event callback for WebSocket broadcasting
     async def event_callback(event: dict):
-        event_type = event.get('type')
-        
-        # Handle frame events - draw YOLO detections on base64 frame
-        if event_type == 'yolo_detection' and 'frame_base64' in event:
-            # Decode base64 to image
-            import base64
-            import numpy as np
-            frame_b64 = event['frame_base64']
-            frame_bytes = base64.b64decode(frame_b64)
-            nparr = np.frombuffer(frame_bytes, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            
-            # Draw YOLO detections on frame
-            from video_processor import VideoProcessor
-            processor = VideoProcessor.__new__(VideoProcessor)
-            processor.COLORS = VideoProcessor.COLORS
-            annotated_frame = processor._draw_detections(frame, event['detections'])
-            
-            # Re-encode to base64
-            _, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-            frame_b64_annotated = base64.b64encode(buffer).decode('utf-8')
-            
-            # Replace with annotated frame
-            event['frame'] = frame_b64_annotated
-            del event['frame_base64']  # Remove original
-        
-        # Broadcast to WebSocket connections (after encoding)
+        """
+        Broadcast events to WebSocket clients.
+        The new continuous stream analyzer already sends annotated frames.
+        """
+        # Broadcast to WebSocket connections
         await manager.broadcast(stream_id, event)
     
     try:
-        # Start stream analysis
+        # Start stream analysis with continuous real-time processing
         result = await engine.stream_analyzer.start_analysis(
             stream_id=stream_id,
             url=request.url,
