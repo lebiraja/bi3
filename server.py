@@ -1196,6 +1196,49 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
             manager.disconnect(websocket, job_id)
 
 
+@app.websocket("/ws/stream/{stream_id}")
+async def stream_websocket_endpoint(websocket: WebSocket, stream_id: str):
+    """
+    WebSocket endpoint for live stream analysis.
+
+    Receives real-time YOLO frames, detections, and VLM analysis.
+    Events:
+    - initialization_started: Pipeline is loading
+    - initialization_complete: Stream is active
+    - yolo_detection: Per-frame detection counts
+    - yolo_video_frame: Base64 annotated frame at ~15fps
+    - vlm_analysis: VLM analysis results every ~2s
+    - enhanced_report: Critical incident reports
+    - error: Error messages
+    """
+    logger.info(f"WebSocket connection request for stream: {stream_id}")
+    await manager.connect(websocket, stream_id)
+
+    try:
+        # Send connection acknowledgment
+        await websocket.send_json({
+            "type": "connected",
+            "stream_id": stream_id,
+            "message": "Connected to stream. Waiting for frames..."
+        })
+
+        # Keep connection alive and handle messages
+        while True:
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=30.0
+                )
+                if data == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "keepalive"})
+
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for stream: {stream_id}")
+        manager.disconnect(websocket, stream_id)
+
+
 # ============ Run Server ============
 
 def run_server(host: str = "0.0.0.0", port: int = 8000):
