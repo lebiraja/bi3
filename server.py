@@ -953,47 +953,22 @@ async def start_stream(request: StreamStartRequest):
     """
     Start processing a live stream or YouTube video.
     
-    Begins 20-second initialization, then continuous 15s+5s batch processing.
+    Uses continuous real-time processing with YOLO at 30fps and VLM every 3 seconds.
     """
-    import base64
-    import cv2
-    
     # Generate stream ID
     stream_id = f"stream_{str(uuid.uuid4())[:8]}"
     
     # Event callback for WebSocket broadcasting
     async def event_callback(event: dict):
-        event_type = event.get('type')
-        
-        # Handle frame events - draw YOLO detections on base64 frame
-        if event_type == 'yolo_detection' and 'frame_base64' in event:
-            # Decode base64 to image
-            import base64
-            import numpy as np
-            frame_b64 = event['frame_base64']
-            frame_bytes = base64.b64decode(frame_b64)
-            nparr = np.frombuffer(frame_bytes, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            
-            # Draw YOLO detections on frame
-            from video_processor import VideoProcessor
-            processor = VideoProcessor.__new__(VideoProcessor)
-            processor.COLORS = VideoProcessor.COLORS
-            annotated_frame = processor._draw_detections(frame, event['detections'])
-            
-            # Re-encode to base64
-            _, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-            frame_b64_annotated = base64.b64encode(buffer).decode('utf-8')
-            
-            # Replace with annotated frame
-            event['frame'] = frame_b64_annotated
-            del event['frame_base64']  # Remove original
-        
-        # Broadcast to WebSocket connections (after encoding)
+        """
+        Broadcast events to WebSocket clients.
+        The new continuous stream analyzer already sends annotated frames.
+        """
+        # Broadcast to WebSocket connections
         await manager.broadcast(stream_id, event)
     
     try:
-        # Start stream analysis
+        # Start stream analysis with continuous real-time processing
         result = await engine.stream_analyzer.start_analysis(
             stream_id=stream_id,
             url=request.url,
@@ -1219,6 +1194,49 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
                     
         except WebSocketDisconnect:
             manager.disconnect(websocket, job_id)
+
+
+@app.websocket("/ws/stream/{stream_id}")
+async def stream_websocket_endpoint(websocket: WebSocket, stream_id: str):
+    """
+    WebSocket endpoint for live stream analysis.
+
+    Receives real-time YOLO frames, detections, and VLM analysis.
+    Events:
+    - initialization_started: Pipeline is loading
+    - initialization_complete: Stream is active
+    - yolo_detection: Per-frame detection counts
+    - yolo_video_frame: Base64 annotated frame at ~15fps
+    - vlm_analysis: VLM analysis results every ~2s
+    - enhanced_report: Critical incident reports
+    - error: Error messages
+    """
+    logger.info(f"WebSocket connection request for stream: {stream_id}")
+    await manager.connect(websocket, stream_id)
+
+    try:
+        # Send connection acknowledgment
+        await websocket.send_json({
+            "type": "connected",
+            "stream_id": stream_id,
+            "message": "Connected to stream. Waiting for frames..."
+        })
+
+        # Keep connection alive and handle messages
+        while True:
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=30.0
+                )
+                if data == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "keepalive"})
+
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for stream: {stream_id}")
+        manager.disconnect(websocket, stream_id)
 
 
 # ============ Run Server ============

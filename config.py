@@ -44,8 +44,13 @@ class Config:
     VLM_REQUEST_TIMEOUT: int = int(os.getenv("VLM_REQUEST_TIMEOUT", "60"))  # Timeout per request in seconds
     VLM_RETRY_ATTEMPTS: int = int(os.getenv("VLM_RETRY_ATTEMPTS", "2"))  # Retry failed requests
     
-    # Ollama Settings (for Gemma3-1B enhanced reports)
+    # VLM Provider Selection
+    VLM_PROVIDER: str = os.getenv("VLM_PROVIDER", "auto")  # "ollama", "openrouter", or "auto"
+    
+    # Ollama Settings (for local VLM)
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_VISION_MODEL: str = os.getenv("OLLAMA_VISION_MODEL", "gemma3:4b")
+    OLLAMA_VISION_TIMEOUT: int = int(os.getenv("OLLAMA_VISION_TIMEOUT", "120"))
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "gemma3:1b")
     OLLAMA_TIMEOUT: int = int(os.getenv("OLLAMA_TIMEOUT", "120"))  # Longer timeout for report generation
     
@@ -65,7 +70,14 @@ class Config:
     STREAM_QUALITY: str = "720p"     # preferred stream quality
     STREAM_TIMEOUT: int = 60         # stream connection timeout (increased for stability)
     
-    # Stream Optimization Settings
+    # Continuous Streaming Configuration (Real-time mode)
+    STREAM_VLM_SAMPLE_INTERVAL: float = float(os.getenv("STREAM_VLM_SAMPLE_INTERVAL", "3.0"))  # VLM sample every N seconds
+    STREAM_VLM_MIN_VEHICLES: int = int(os.getenv("STREAM_VLM_MIN_VEHICLES", "2"))  # Min vehicles to trigger VLM
+    STREAM_YOLO_FPS: int = 30  # Process all frames from stream
+    STREAM_WEBSOCKET_FPS: int = 30  # Broadcast annotated frames at this FPS
+    STREAM_CONTEXT_WINDOW: float = 6.0  # Seconds of history for VLM context
+    
+    # Stream Optimization Settings (Batch mode - deprecated)
     STREAM_VLM_INTERVAL: int = 3     # Analyze every N seconds (1=all, 3=every 3rd)
     STREAM_SKIP_LOW_ACTIVITY: bool = True  # Skip VLM when few vehicles
     STREAM_MIN_VEHICLES_FOR_VLM: int = 2   # Minimum vehicles to trigger VLM
